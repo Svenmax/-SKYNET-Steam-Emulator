@@ -186,7 +186,8 @@ public partial class MainWindow : Window
             Options_Click(sender, e);
             return;
         }
-        OpenWeb("Auth/Login");
+        // Server route is @page "/login" (see Pages/Auth/Login.cshtml).
+        OpenWeb("login");
         _ = RecheckAfterDelay();
     }
 

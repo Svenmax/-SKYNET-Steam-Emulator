@@ -30,7 +30,8 @@ public sealed class ServerClient
         _baseUrl = baseUrl.EndsWith("/") ? baseUrl : baseUrl + "/";
     }
 
-    public string LoginUrl => _baseUrl + "Auth/Login";
+    // Matches @page "/login" on the server (not the Razor page path /Auth/Login).
+    public string LoginUrl => _baseUrl + "login";
 
     public string BaseUrl => _baseUrl;
 
