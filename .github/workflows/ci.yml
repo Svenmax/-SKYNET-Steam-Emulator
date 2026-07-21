@@ -1,0 +1,154 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout SKYNET Steam Emulator
+        uses: actions/checkout@v4
+        with:
+          # Sibling layout required by SKYNET server ProjectReference:
+          #   ../../Ts.NET Runtime/...
+          path: SKYNET-Steam-Emulator
+
+      - name: Checkout Ts.NET Runtime (dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: Hackerprod/Ts.NET-Runtime
+          path: Ts.NET Runtime
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) {
+            throw "vswhere.exe not found at $vswhere"
+          }
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' |
+            Select-Object -First 1
+          if (-not $msbuild) {
+            throw 'MSBuild.exe not found via vswhere'
+          }
+          Write-Host "MSBuild: $msbuild"
+          "path=$msbuild" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Restore & build SKYNET server
+        working-directory: SKYNET-Steam-Emulator
+        shell: pwsh
+        run: |
+          $proj = 'SKYNET server\SKYNET server.csproj'
+          dotnet restore $proj
+          # Committed wwwroot CSS is enough; Node/Tailwind rebuild is optional.
+          dotnet build $proj -c Release --no-restore
+
+      - name: Publish SKYNET server (win-x64)
+        working-directory: SKYNET-Steam-Emulator
+        shell: pwsh
+        run: |
+          $proj = 'SKYNET server\SKYNET server.csproj'
+          $out = Join-Path $PWD 'artifacts\server'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish $proj -c Release -r win-x64 --self-contained false -o $out
+
+      - name: Build steam_api (DllExport x64)
+        working-directory: SKYNET-Steam-Emulator
+        shell: pwsh
+        run: |
+          $msbuild = '${{ steps.msbuild.outputs.path }}'
+          $solutionDir = (Resolve-Path '.').Path
+          if (-not $solutionDir.EndsWith('\')) { $solutionDir += '\' }
+
+          # Offline DllExport packages live under ./packages (vendored).
+          & $msbuild 'steam_api\steam_api.csproj' `
+            /t:Restore `
+            /p:Configuration=Release `
+            /p:Platform=AnyCPU `
+            /p:RuntimeIdentifier=win-x64 `
+            "/p:SolutionDir=$solutionDir"
+
+          & $msbuild 'steam_api\steam_api.csproj' `
+            /t:Rebuild `
+            /p:Configuration=Release `
+            /p:Platform=AnyCPU `
+            /p:RuntimeIdentifier=win-x64 `
+            /p:PlatformTarget=x64 `
+            /p:DllExportPlatform=x64 `
+            /p:DllExportOurILAsm=true `
+            "/p:SolutionDir=$solutionDir" `
+            /m:1 `
+            /v:minimal
+
+          $dll = 'steam_api\bin\Release\steam_api.dll'
+          if (-not (Test-Path $dll)) {
+            throw "Expected output missing: $dll"
+          }
+          Write-Host "Built $dll ($((Get-Item $dll).Length) bytes)"
+
+      - name: Stage payload + build SKYNET Steam Client
+        working-directory: SKYNET-Steam-Emulator
+        shell: pwsh
+        run: |
+          $payloadDir = 'SKYNET Steam Client\payload\x64'
+          New-Item -ItemType Directory -Force -Path $payloadDir | Out-Null
+          Copy-Item 'steam_api\bin\Release\steam_api.dll' `
+            (Join-Path $payloadDir 'steam_api64.dll') -Force
+
+          $config = 'steam_api\bin\Release\steam_api.dll.config'
+          if (Test-Path $config) {
+            Copy-Item $config (Join-Path $payloadDir 'steam_api64.dll.config') -Force
+          }
+
+          $proj = 'SKYNET Steam Client\SKYNET Steam Client.csproj'
+          $out = Join-Path $PWD 'artifacts\client'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet restore $proj
+          dotnet build $proj -c Release --no-restore
+          $bin = Get-ChildItem -Path 'SKYNET Steam Client\bin\Release' -Recurse -Filter 'SKYNET Steam Client.exe' |
+            Select-Object -First 1
+          if (-not $bin) {
+            throw 'SKYNET Steam Client.exe not found after build'
+          }
+          Copy-Item (Join-Path $bin.DirectoryName '*') $out -Recurse -Force
+          Write-Host "Client staged from $($bin.DirectoryName)"
+
+      - name: Collect steam_api artifact
+        working-directory: SKYNET-Steam-Emulator
+        shell: pwsh
+        run: |
+          $out = 'artifacts\steam_api'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item 'steam_api\bin\Release\steam_api.dll' $out -Force
+          if (Test-Path 'steam_api\bin\Release\steam_api.dll.config') {
+            Copy-Item 'steam_api\bin\Release\steam_api.dll.config' $out -Force
+          }
+          if (Test-Path 'steam_api\bin\Release\steam_api.pdb') {
+            Copy-Item 'steam_api\bin\Release\steam_api.pdb' $out -Force
+          }
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skynet-windows-${{ github.sha }}
+          path: |
+            SKYNET-Steam-Emulator/artifacts/**
+          if-no-files-found: error
+          retention-days: 14
