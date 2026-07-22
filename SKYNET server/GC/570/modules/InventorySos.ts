@@ -7,15 +7,24 @@ import {
     CSOEconItemEquipped,
     Proto
 } from "../generated/dota";
+import { normalizeConduct } from "./shared/conduct";
+import {
+    DOTA_SO_ECON_GAME_ACCOUNT_CLIENT,
+    DOTA_SO_ECON_ITEM,
+    DOTA_SO_PLAYER_CHALLENGE,
+    DOTA_SO_SERVICE_ECON,
+    DOTA_SO_SERVICE_GAME,
+    SO_OWNER_STEAM_ID
+} from "./shared/soIds";
 
-export const ECON_ITEM_TYPE_ID = 1;
-export const OWNER_TYPE_STEAM_ID = 1;
-export const ECON_SERVICE_ID = 1;
+export const ECON_ITEM_TYPE_ID = DOTA_SO_ECON_ITEM;
+export const OWNER_TYPE_STEAM_ID = SO_OWNER_STEAM_ID;
+export const ECON_SERVICE_ID = DOTA_SO_SERVICE_ECON;
 
-const DOTA_SERVICE_GAME = 0;
-const DOTA_SERVICE_ECON = 1;
-const GAME_ACCOUNT_TYPE_ID = 7;
-const ITEM_SCHEMA_TYPE_ID = 2010;
+const DOTA_SERVICE_GAME = DOTA_SO_SERVICE_GAME;
+const DOTA_SERVICE_ECON = DOTA_SO_SERVICE_ECON;
+const GAME_ACCOUNT_TYPE_ID = DOTA_SO_ECON_GAME_ACCOUNT_CLIENT;
+const ITEM_SCHEMA_TYPE_ID = DOTA_SO_PLAYER_CHALLENGE;
 const DEFAULT_INVENTORY_POSITION = 1;
 const DEFAULT_QUANTITY = 1;
 const DEFAULT_LEVEL = 1;
@@ -73,7 +82,7 @@ export function buildEconSoCacheSubscribedForInventory(
                       objectData: [
                           ctx.encode(
                               Proto.CSODOTAGameAccountClient,
-                              buildDotaGameAccount(steamIdToAccountId(inventory.steamId))
+                              buildDotaGameAccount(ctx, steamIdToAccountId(inventory.steamId))
                           )
                       ]
                   },
@@ -212,9 +221,24 @@ function buildEconGameAccount(): CSOEconGameAccountClient {
     };
 }
 
-function buildDotaGameAccount(accountId: number): CSODOTAGameAccountClient {
+export function buildDotaGameAccount(ctx: GcContextBase, accountId = ctx.accountId): CSODOTAGameAccountClient {
+    const snapshot = ctx.services.profiles.get(accountId);
+    const conduct = normalizeConduct(snapshot.conduct);
+    const conductSequence =
+        (conduct.reportsCount ?? 0) +
+        (conduct.matchesAbandoned ?? 0) +
+        conduct.commendCount +
+        (conduct.commsReports ?? 0);
+
     return {
-        accountId
+        accountId,
+        // Dota reads conduct from both the explicit 8096 scorecard response and
+        // this account SO cache. Keep the SO cache tied to the persisted report
+        // counters so fresh accounts publish 10000, while reports, abandons and
+        // commends move the same value the scorecard exposes.
+        playerBehaviorSeqNumLastReport: conductSequence,
+        playerBehaviorScoreLastReport: conduct.rawBehaviorScore,
+        playerBehaviorReportOldData: false
     };
 }
 
