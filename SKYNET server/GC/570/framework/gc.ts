@@ -1,7 +1,7 @@
 import { GcRoute, ProtoDescriptor } from "../generated/dota";
 
 export type HandlerResult = void | boolean | Promise<void | boolean>;
-export type RouteHandler<TRequest, TResponse> = (ctx: HandlerContext<TRequest, TResponse>) => HandlerResult;
+export type RouteHandler<TRequest = any, TResponse = any> = (ctx: HandlerContext<TRequest, TResponse>) => HandlerResult;
 export type RawMessageHandler = (ctx: RawMessageContext) => HandlerResult;
 
 export interface GcContextBase {
@@ -1137,7 +1137,7 @@ class GcDotaTeamService implements DotaTeamService {
     }
 }
 
-function toTeamJson(team: DotaTeamUpsert): unknown {
+function toTeamJson(team: DotaTeamUpsert): any {
     return {
         name: team.name,
         tag: team.tag,
@@ -1160,8 +1160,72 @@ function toTeamJson(team: DotaTeamUpsert): unknown {
     };
 }
 
-function stringifyHostJson(value: unknown): string {
-    return JSON.stringify(value, (_key, field) => (typeof field === "bigint" ? field.toString() : field));
+// TypeSharp has no JSON builtin. Team payloads only need a fixed-key encoder.
+function stringifyHostJson(value: any): string {
+    const items: string[] = [];
+    appendJsonField(items, "name", value.name);
+    appendJsonField(items, "tag", value.tag);
+    appendJsonField(items, "logo", value.logo);
+    appendJsonField(items, "teamLogo", value.teamLogo);
+    appendJsonField(items, "baseLogo", value.baseLogo);
+    appendJsonField(items, "teamBaseLogo", value.teamBaseLogo);
+    appendJsonField(items, "bannerLogo", value.bannerLogo);
+    appendJsonField(items, "teamBannerLogo", value.teamBannerLogo);
+    appendJsonField(items, "sponsorLogo", value.sponsorLogo);
+    appendJsonField(items, "countryCode", value.countryCode);
+    appendJsonField(items, "url", value.url);
+    appendJsonField(items, "pickupTeam", value.pickupTeam);
+    appendJsonField(items, "abbreviation", value.abbreviation);
+    appendJsonField(items, "region", value.region);
+    appendJsonField(items, "wins", value.wins);
+    appendJsonField(items, "losses", value.losses);
+    appendJsonField(items, "gamesPlayedTotal", value.gamesPlayedTotal);
+    appendJsonField(items, "gamesPlayedMatchmaking", value.gamesPlayedMatchmaking);
+    return "{" + items.join(",") + "}";
+}
+
+function appendJsonField(items: string[], key: string, field: any): void {
+    if (field === undefined) {
+        return;
+    }
+    items.push(stringifyJsonString(key) + ":" + stringifyJsonPrimitive(field));
+}
+
+function stringifyJsonPrimitive(value: any): string {
+    if (value === null || value === undefined) {
+        return "null";
+    }
+    const valueType = typeof value;
+    if (valueType === "string") {
+        return stringifyJsonString(value as string);
+    }
+    if (valueType === "number" || valueType === "boolean") {
+        return String(value);
+    }
+    if (valueType === "bigint") {
+        return stringifyJsonString((value as bigint).toString());
+    }
+    return stringifyJsonString(String(value));
+}
+
+function stringifyJsonString(value: string): string {
+    let result = "\"";
+    for (let i = 0; i < value.length; i++) {
+        const ch = value.charAt(i);
+        if (ch === "\\" || ch === "\"") {
+            result += "\\" + ch;
+        } else if (ch === "\n") {
+            result += "\\n";
+        } else if (ch === "\r") {
+            result += "\\r";
+        } else if (ch === "\t") {
+            result += "\\t";
+        } else {
+            result += ch;
+        }
+    }
+    result += "\"";
+    return result;
 }
 
 class GcDotaProfileService implements DotaProfileService {
@@ -1619,21 +1683,21 @@ class GcRawMessageContext implements RawMessageContext {
     }
 }
 
-const emptyProto: ProtoDescriptor<unknown> = { name: "" };
-const emptyRoute: GcRoute<unknown, unknown> = {
+const emptyProto: ProtoDescriptor<any> = { name: "" };
+const emptyRoute: GcRoute<any, any> = {
     requestId: 0,
     responseId: 0,
     request: emptyProto,
     response: emptyProto
 };
-const unregisteredRouteHandler: RouteHandler<unknown, unknown> = () => false;
+const unregisteredRouteHandler: RouteHandler<any, any> = () => false;
 const unregisteredRawHandler: RawMessageHandler = () => false;
 
 interface RegisteredHandler {
     readonly messageId: number;
     readonly raw: boolean;
-    readonly route: GcRoute<unknown, unknown>;
-    readonly routeHandler: RouteHandler<unknown, unknown>;
+    readonly route: GcRoute<any, any>;
+    readonly routeHandler: RouteHandler<any, any>;
     readonly rawHandler: RawMessageHandler;
     readonly source: string;
 }
@@ -1649,8 +1713,8 @@ class GcRouter {
         this.register({
             messageId: route.requestId,
             raw: false,
-            route: route as GcRoute<unknown, unknown>,
-            routeHandler: handler as RouteHandler<unknown, unknown>,
+            route: route as GcRoute<any, any>,
+            routeHandler: handler as RouteHandler<any, any>,
             rawHandler: unregisteredRawHandler,
             source: route.request.name
         });
@@ -1674,6 +1738,62 @@ class GcRouter {
         }
 
         const registration = this.handlers.get(current) as RegisteredHandler;
+        try {
+            let result: HandlerResult = true;
+            if (registration.raw) {
+                result = registration.rawHandler(this.createRawContext(current));
+            } else {
+                result = registration.routeHandler(this.createContext(registration.route));
+            }
+
+            const resolved = await result;
+            if (resolved === false) {
+                return false;
+            }
+            return true;
+        } catch (error) {
+            this.logDispatchError(current, registration, String(error));
+            throw error;
+        }
+    }
+
+    private register(registration: RegisteredHandler): void {
+        if (this.handlers.has(registration.messageId)) {
+            throw new Error(
+                "Duplicate GC handler for message " +
+                    registration.messageId +
+                    " while registering " +
+                    registration.source
+            );
+        }
+
+        this.handlers.set(registration.messageId, registration);
+    }
+
+    private logDispatchError(messageId: number, registration: RegisteredHandler, error: string): void {
+        log(
+            "GC handler failed. messageId=" +
+                messageId +
+                " source=" +
+                registration.source +
+                " steamId=" +
+                currentSteamId() +
+                " error=" +
+                error
+        );
+    }
+
+    createContext<TRequest, TResponse>(route: GcRoute<TRequest, TResponse>): HandlerContext<TRequest, TResponse> {
+        return new GcHandlerContext(route);
+    }
+
+    createRawContext(currentMessageType: number): RawMessageContext {
+        return new GcRawMessageContext(currentMessageType);
+    }
+}
+
+export const gc = new GcRouter();
+dler;
         try {
             let result: HandlerResult = true;
             if (registration.raw) {
