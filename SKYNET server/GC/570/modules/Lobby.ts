@@ -343,38 +343,46 @@ export class Lobby {
     private joinLobby(ctx: HandlerContext<CMsgPracticeLobbyJoin, CMsgPracticeLobbyJoinResponse>): boolean {
         const lobbyId = ctx.request.lobbyId ?? 0n;
         const passKey = ctx.request.passKey ?? "";
-        const lobby = store.lobbies.get(lobbyId) ?? null;
-        let result = JOIN_INVALID_LOBBY;
-
-        if (lobby === null) {
-            result = JOIN_INVALID_LOBBY;
-        } else if (lobby.state !== LOBBY_UI) {
-            result = JOIN_ALREADY_IN_GAME;
-        } else if (lobby.passKey !== "" && lobby.passKey !== passKey) {
-            result = JOIN_BAD_PASSWORD;
-        } else if (lobby.members.length >= MAX_MEMBERS && findMember(lobby, ctx.steamId) === null) {
-            result = JOIN_FULL;
-        } else {
-            leaveCurrent(ctx, lobby.lobbyId);
-            const member = ensureMember(lobby, ctx.steamId, ctx.accountId, ctx.personaName, ctx.clock.now(), ctx);
-            if (member.steamId !== lobby.leaderSteamId) {
-                member.team = TEAM_POOL;
-                member.slot = 0;
-                member.coachTeam = TEAM_NONE;
-            }
-
-            refreshLobby(lobby, ctx.clock.now());
-            subscribeToLobbyObjectOnly(ctx, ctx.steamId, lobby);
-            ctx.reply({ result: JOIN_SUCCESS });
-            // Joiner already got the full lobby via subscribe + single object;
-            // notify the existing members (incl. leader) so they see the new
-            // player. Excluding the joiner avoids a redundant 26 on top of 24/21.
-            broadcastLobby(ctx, lobby, ctx.steamId, false);
-            publishLobby(ctx.services.lobby, lobby);
+        // TypeSharp does not narrow null across else-if chains; use any + early returns.
+        const lobby: any = store.lobbies.get(lobbyId);
+        if (lobby === null || lobby === undefined) {
+            ctx.reply({ result: JOIN_INVALID_LOBBY });
+            return true;
+        }
+        if (lobby.state !== LOBBY_UI) {
+            ctx.reply({ result: JOIN_ALREADY_IN_GAME });
+            return true;
+        }
+        if (lobby.passKey !== "" && lobby.passKey !== passKey) {
+            ctx.reply({ result: JOIN_BAD_PASSWORD });
+            return true;
+        }
+        const members: any = lobby.members;
+        let memberCount = 0;
+        if (members !== null && members !== undefined) {
+            memberCount = members.length;
+        }
+        if (memberCount >= MAX_MEMBERS && findMember(lobby, ctx.steamId) === null) {
+            ctx.reply({ result: JOIN_FULL });
             return true;
         }
 
-        ctx.reply({ result });
+        leaveCurrent(ctx, lobby.lobbyId);
+        const member = ensureMember(lobby, ctx.steamId, ctx.accountId, ctx.personaName, ctx.clock.now(), ctx);
+        if (member.steamId !== lobby.leaderSteamId) {
+            member.team = TEAM_POOL;
+            member.slot = 0;
+            member.coachTeam = TEAM_NONE;
+        }
+
+        refreshLobby(lobby, ctx.clock.now());
+        subscribeToLobbyObjectOnly(ctx, ctx.steamId, lobby);
+        ctx.reply({ result: JOIN_SUCCESS });
+        // Joiner already got the full lobby via subscribe + single object;
+        // notify the existing members (incl. leader) so they see the new
+        // player. Excluding the joiner avoids a redundant 26 on top of 24/21.
+        broadcastLobby(ctx, lobby, ctx.steamId, false);
+        publishLobby(ctx.services.lobby, lobby);
         return true;
     }
 
