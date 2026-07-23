@@ -1203,7 +1203,8 @@ function stringifyJsonPrimitive(value: any): string {
         return String(value);
     }
     if (valueType === "bigint") {
-        return stringifyJsonString((value as bigint).toString());
+        // TypeSharp bigint has no instance toString(); use global String().
+        return stringifyJsonString(String(value));
     }
     return stringifyJsonString(String(value));
 }
