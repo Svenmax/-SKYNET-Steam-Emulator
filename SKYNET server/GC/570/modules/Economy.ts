@@ -85,8 +85,19 @@ export class Economy {
 
         rememberPurchase(ctx.accountId, txnId, defIndexes);
 
+        // Offline/emulator clients commonly do Init -> Cancel and never Finalize
+        // (they wait for MicroTxnAuthorizationResponse which SKYNET does not
+        // emit). Mirror gbe_fork: grant + SO push on Init so the backpack
+        // updates even when the client aborts the txn next.
+        const itemIds = grantPurchaseItems(ctx, defIndexes);
+
         ctx.logger.info(
-            "Economy: StorePurchaseInit lineItems=" + defIndexes.length + " txnId=" + String(txnId)
+            "Economy: StorePurchaseInit lineItems=" +
+                defIndexes.length +
+                " txnId=" +
+                txnId +
+                " granted=" +
+                itemIds.length
         );
         ctx.reply<CMsgGCStorePurchaseInitResponse>(
             Msg.GCStorePurchaseInitResponse,
