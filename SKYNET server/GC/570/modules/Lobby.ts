@@ -895,7 +895,7 @@ export class Lobby {
 function createLobbyState(ctx: HandlerContext<CMsgPracticeLobbyCreate, CMsgGenericResult>): LobbyState {
     const now = ctx.clock.now();
     const lobbyId = nextId(now);
-    const lobby: LobbyState = {
+    const lobby: any = {
         lobbyId,
         leaderSteamId: ctx.steamId,
         leaderAccountId: ctx.accountId,
@@ -954,7 +954,7 @@ function createLobbyState(ctx: HandlerContext<CMsgPracticeLobbyCreate, CMsgGener
     return lobby;
 }
 
-function applyCreateRequest(lobby: LobbyState, request: CMsgPracticeLobbyCreate): void {
+function applyCreateRequest(lobby: any, request: CMsgPracticeLobbyCreate): void {
     lobby.passKey = request.passKey ?? lobby.passKey;
     const details = request.lobbyDetails;
     if (details !== undefined) {
@@ -969,7 +969,7 @@ function applyCreateRequest(lobby: LobbyState, request: CMsgPracticeLobbyCreate)
     lobby.allowSpectating = false;
 }
 
-function applyDetails(lobby: LobbyState, details: CMsgPracticeLobbySetDetails): void {
+function applyDetails(lobby: any, details: CMsgPracticeLobbySetDetails): void {
     lobby.gameName = details.gameName ?? lobby.gameName;
     // Dota's client indexes team_details[0]/[1] directly for team banners;
     // the legacy GC always guarantees exactly 2 entries after applying
@@ -1008,7 +1008,7 @@ function applyDetails(lobby: LobbyState, details: CMsgPracticeLobbySetDetails): 
     normalizeLobbyLocation(lobby);
 }
 
-function normalizeLobbyLocation(lobby: LobbyState): void {
+function normalizeLobbyLocation(lobby: any): void {
     // Dota can send stale lan=true while carrying the persisted region.
     // Keep the region as source of truth so the lobby header and launch route agree.
     lobby.lan = lobby.serverRegion === 0;
@@ -1016,7 +1016,7 @@ function normalizeLobbyLocation(lobby: LobbyState): void {
 
 function applyTeamToLobby(
     ctx: HandlerContext<CMsgApplyTeamToPracticeLobby, CMsgGenericResult>,
-    lobby: LobbyState
+    lobby: any
 ): void {
     const member = findMember(lobby, ctx.steamId);
     const teamIndex = member === null ? -1 : member.team === TEAM_GOOD ? 0 : member.team === TEAM_BAD ? 1 : -1;
@@ -1062,7 +1062,7 @@ function lobbyTeamDetail(team: DotaTeam): CLobbyTeamDetails {
     };
 }
 
-function markTeamsIncomplete(lobby: LobbyState): void {
+function markTeamsIncomplete(lobby: any): void {
     lobby.teamDetails = normalizeLobbyTeamDetails(lobby.teamDetails);
     for (let i = 0; i < lobby.teamDetails.length; i++) {
         lobby.teamDetails[i] = {
@@ -1095,7 +1095,7 @@ function emptyLobbyTeamDetail(): CLobbyTeamDetails {
     };
 }
 
-function joinLobbyState(ctx: RawMessageContext, lobby: LobbyState, passKey: string, bypassPassword: boolean): boolean {
+function joinLobbyState(ctx: RawMessageContext, lobby: any, passKey: string, bypassPassword: boolean): boolean {
     if (lobby.state !== LOBBY_UI || (!bypassPassword && lobby.passKey !== "" && lobby.passKey !== passKey)) {
         return false;
     }
@@ -1115,22 +1115,36 @@ function joinLobbyState(ctx: RawMessageContext, lobby: LobbyState, passKey: stri
     return true;
 }
 
-function currentLobby(steamId: bigint): LobbyState | null {
+function currentLobby(steamId: bigint): any {
     const lobbyId = store.bySteam.get(steamId);
-    return lobbyId === undefined ? null : (store.lobbies.get(lobbyId) ?? null);
+    if (lobbyId === undefined) {
+        return null;
+    }
+    const lobby = store.lobbies.get(lobbyId);
+    if (lobby === undefined) {
+        return null;
+    }
+    return lobby;
 }
 
 export function isSteamIdInLobby(steamId: bigint): boolean {
     return currentLobby(steamId) !== null;
 }
 
-function serverLobby(steamId: bigint): LobbyState | null {
+function serverLobby(steamId: bigint): any {
     const lobbyId = store.byServer.get(steamId);
-    return lobbyId === undefined ? null : (store.lobbies.get(lobbyId) ?? null);
+    if (lobbyId === undefined) {
+        return null;
+    }
+    const lobby = store.lobbies.get(lobbyId);
+    if (lobby === undefined) {
+        return null;
+    }
+    return lobby;
 }
 
-function waitingLobby(): LobbyState | null {
-    let selected: LobbyState | null = null;
+function waitingLobby(): any {
+    let selected: any = null;
     store.lobbies.forEach((lobby) => {
         if (lobby.state === LOBBY_SERVER_SETUP && (selected === null || lobby.version > selected.version)) {
             selected = lobby;
@@ -1141,7 +1155,7 @@ function waitingLobby(): LobbyState | null {
 }
 
 function ensureMember(
-    lobby: LobbyState,
+    lobby: any,
     steamId: bigint,
     accountId: number,
     personaName: string,
@@ -1156,7 +1170,7 @@ function ensureMember(
         return existing;
     }
 
-    const member: LobbyMemberState = {
+    const member: any = {
         steamId,
         accountId,
         personaName: personaName === "" ? "User" + accountId : personaName,
@@ -1173,7 +1187,7 @@ function ensureMember(
     return member;
 }
 
-function findMember(lobby: LobbyState, steamId: bigint): LobbyMemberState | null {
+function findMember(lobby: any, steamId: bigint): any {
     for (let i = 0; i < lobby.members.length; i++) {
         if (lobby.members[i].steamId === steamId) {
             return lobby.members[i];
@@ -1183,7 +1197,7 @@ function findMember(lobby: LobbyState, steamId: bigint): LobbyMemberState | null
     return null;
 }
 
-function slotOccupied(lobby: LobbyState, steamId: bigint, team: number, slot: number): boolean {
+function slotOccupied(lobby: any, steamId: bigint, team: number, slot: number): boolean {
     for (let i = 0; i < lobby.members.length; i++) {
         const member = lobby.members[i];
         if (member.steamId !== steamId && member.team === team && member.slot === slot) {
@@ -1211,7 +1225,7 @@ function kickMemberByAccountId(ctx: RawMessageContext, accountId: number): void 
     publishLobby(ctx.services.lobby, lobby);
 }
 
-function findMemberByAccountId(lobby: LobbyState, accountId: number): LobbyMemberState | null {
+function findMemberByAccountId(lobby: any, accountId: number): any {
     for (let i = 0; i < lobby.members.length; i++) {
         if (lobby.members[i].accountId === accountId) {
             return lobby.members[i];
@@ -1221,7 +1235,7 @@ function findMemberByAccountId(lobby: LobbyState, accountId: number): LobbyMembe
     return null;
 }
 
-function removeLobbyMember(ctx: GcContextBase, lobby: LobbyState, member: LobbyMemberState, kicked: boolean): void {
+function removeLobbyMember(ctx: GcContextBase, lobby: any, member: any, kicked: boolean): void {
     lobby.members = lobby.members.filter((candidate) => candidate.steamId !== member.steamId);
     store.bySteam.delete(member.steamId);
 
@@ -1235,7 +1249,7 @@ function removeLobbyMember(ctx: GcContextBase, lobby: LobbyState, member: LobbyM
     sendTo(ctx, member.steamId, Msg.SOCacheUnsubscribed, buildLobbySoCacheUnsubscribed(lobby));
 }
 
-function shuffleLobbyTeams(lobby: LobbyState): void {
+function shuffleLobbyTeams(lobby: any): void {
     const candidates = lobby.members.filter(
         (member) => member.coachTeam === TEAM_NONE && (member.team === TEAM_GOOD || member.team === TEAM_BAD)
     );
@@ -1256,7 +1270,7 @@ function shuffleLobbyTeams(lobby: LobbyState): void {
     clearTeamDetail(lobby, TEAM_BAD);
 }
 
-function flipLobbyTeams(lobby: LobbyState): void {
+function flipLobbyTeams(lobby: any): void {
     for (let i = 0; i < lobby.members.length; i++) {
         const member = lobby.members[i];
         if (member.team === TEAM_GOOD) {
@@ -1272,11 +1286,11 @@ function flipLobbyTeams(lobby: LobbyState): void {
     lobby.teamDetails[1] = radiant;
 }
 
-function clearTeamDetailForMember(lobby: LobbyState, member: LobbyMemberState): void {
+function clearTeamDetailForMember(lobby: any, member: any): void {
     clearTeamDetail(lobby, member.team);
 }
 
-function clearTeamDetail(lobby: LobbyState, team: number): void {
+function clearTeamDetail(lobby: any, team: number): void {
     lobby.teamDetails = normalizeLobbyTeamDetails(lobby.teamDetails);
     if (team === TEAM_GOOD) {
         lobby.teamDetails[0] = emptyLobbyTeamDetail();
@@ -1329,7 +1343,7 @@ function leavePublishedLobbyState(ctx: GcContextBase): void {
     }
 }
 
-function destroyLobby(lobby: LobbyState, ctx: GcContextBase | undefined, reason: string): void {
+function destroyLobby(lobby: any, ctx: GcContextBase | undefined, reason: string): void {
     const unsubscribe = ctx === undefined ? null : buildLobbySoCacheUnsubscribed(lobby);
     for (let i = 0; i < lobby.members.length; i++) {
         store.bySteam.delete(lobby.members[i].steamId);
@@ -1356,12 +1370,12 @@ function destroyLobby(lobby: LobbyState, ctx: GcContextBase | undefined, reason:
     }
 }
 
-function refreshLobby(lobby: LobbyState, now: number): void {
+function refreshLobby(lobby: any, now: number): void {
     lobby.version = nextId(now);
     lobby.updatedAt = now;
 }
 
-function attachServer(ctx: RawMessageContext, lobby: LobbyState, markRun: boolean): void {
+function attachServer(ctx: RawMessageContext, lobby: any, markRun: boolean): void {
     const previousServerSteamId = lobby.serverSteamId;
     lobby.serverSteamId = ctx.steamId;
     if (previousServerSteamId !== 0n && previousServerSteamId !== ctx.steamId) {
@@ -1407,7 +1421,7 @@ function attachServer(ctx: RawMessageContext, lobby: LobbyState, markRun: boolea
     publishLobby(ctx.services.lobby, lobby);
 }
 
-function updateServerInfo(lobby: LobbyState, ctx: RawMessageContext, request: CMsgGameServerInfo): void {
+function updateServerInfo(lobby: any, ctx: RawMessageContext, request: CMsgGameServerInfo): void {
     lobby.serverPort = request.serverPort ?? lobby.serverPort;
     lobby.serverPublicIp = ipFromUint32(request.serverPublicIpAddr ?? 0);
     lobby.serverPrivateIp = ipFromUint32(request.serverPrivateIpAddr ?? 0);
@@ -1425,7 +1439,7 @@ function updateServerInfo(lobby: LobbyState, ctx: RawMessageContext, request: CM
     );
 }
 
-function buildConnectString(services: DotaLobbyService, lobby: LobbyState): string {
+function buildConnectString(services: DotaLobbyService, lobby: any): string {
     const fallback = lobby.serverPrivateIp === "" ? "127.0.0.1" : lobby.serverPrivateIp;
     const ips = services.resolveGameServerConnectIps(lobby.serverPublicIp, lobby.serverPrivateIp, fallback).split(" ");
     const endpoints: string[] = [];
@@ -1443,7 +1457,7 @@ function buildConnectString(services: DotaLobbyService, lobby: LobbyState): stri
     return endpoints.join(" ");
 }
 
-function startRealtimeStats(ctx: RawMessageContext, lobby: LobbyState): void {
+function startRealtimeStats(ctx: RawMessageContext, lobby: any): void {
     if (lobby.serverSteamId === 0n) {
         return;
     }
@@ -1461,7 +1475,7 @@ function startRealtimeStats(ctx: RawMessageContext, lobby: LobbyState): void {
     lobby.realtimeStatsStartStopSent = true;
 }
 
-function sendLobbyPlayerItemsToServer(ctx: RawMessageContext, lobby: LobbyState): void {
+function sendLobbyPlayerItemsToServer(ctx: RawMessageContext, lobby: any): void {
     if (lobby.serverSteamId === 0n) {
         return;
     }
@@ -1494,7 +1508,7 @@ function sendLobbyPlayerItemsToServer(ctx: RawMessageContext, lobby: LobbyState)
     }
 }
 
-function applyConnectedPlayers(lobby: LobbyState, request: CMsgConnectedPlayers, now: number): void {
+function applyConnectedPlayers(lobby: any, request: CMsgConnectedPlayers, now: number): void {
     const connected = request.connectedPlayers ?? [];
     for (let i = 0; i < connected.length; i++) {
         const player = connected[i];
@@ -1519,7 +1533,7 @@ function applyConnectedPlayers(lobby: LobbyState, request: CMsgConnectedPlayers,
     }
 }
 
-function prepareLobbyForLaunch(ctx: GcContextBase, lobby: LobbyState): void {
+function prepareLobbyForLaunch(ctx: GcContextBase, lobby: any): void {
     if (lobby.allowSpectating) {
         let spectators = 0;
         for (let i = 0; i < lobby.members.length; i++) {
@@ -1553,7 +1567,7 @@ function prepareLobbyForLaunch(ctx: GcContextBase, lobby: LobbyState): void {
     lobby.numSpectators = 0;
 }
 
-function ensureMatchId(lobby: LobbyState): bigint {
+function ensureMatchId(lobby: any): bigint {
     if (lobby.matchId === 0n) {
         if (store.nextMatchId === 0n) {
             store.nextMatchId = BigInt(lobby.updatedAt) * 5n;
@@ -1566,7 +1580,7 @@ function ensureMatchId(lobby: LobbyState): bigint {
     return lobby.matchId;
 }
 
-function buildLobbySoCacheSubscribed(ctx: GcContextBase, lobby: LobbyState): CMsgSOCacheSubscribed {
+function buildLobbySoCacheSubscribed(ctx: GcContextBase, lobby: any): CMsgSOCacheSubscribed {
     return {
         objects: [
             subscribedType(LOBBY_OBJECT_TYPE_ID, [ctx.encode(Proto.CSODOTALobby, buildLobbyObject(lobby))]),
@@ -1591,7 +1605,7 @@ function buildLobbySoCacheSubscribed(ctx: GcContextBase, lobby: LobbyState): CMs
     };
 }
 
-function buildLobbyObjectOnlySubscribed(ctx: GcContextBase, lobby: LobbyState): CMsgSOCacheSubscribed {
+function buildLobbyObjectOnlySubscribed(ctx: GcContextBase, lobby: any): CMsgSOCacheSubscribed {
     // Joining an existing practice lobby follows the legacy GC wire flow:
     // the joining client receives a cache subscription containing only the
     // mutable lobby object (2004), then a single-object create for the same
@@ -1604,7 +1618,7 @@ function buildLobbyObjectOnlySubscribed(ctx: GcContextBase, lobby: LobbyState): 
     };
 }
 
-function buildLobbySoCacheUnsubscribed(lobby: LobbyState): CMsgSOCacheUnsubscribed {
+function buildLobbySoCacheUnsubscribed(lobby: any): CMsgSOCacheUnsubscribed {
     return buildLobbySoCacheUnsubscribedForId(lobby.lobbyId);
 }
 
@@ -1614,7 +1628,7 @@ function buildLobbySoCacheUnsubscribedForId(lobbyId: bigint): CMsgSOCacheUnsubsc
     };
 }
 
-function buildLobbySingleObject(ctx: GcContextBase, lobby: LobbyState): CMsgSOSingleObject {
+function buildLobbySingleObject(ctx: GcContextBase, lobby: any): CMsgSOSingleObject {
     return {
         typeId: LOBBY_OBJECT_TYPE_ID,
         objectData: ctx.encode(Proto.CSODOTALobby, buildLobbyObject(lobby)),
@@ -1623,7 +1637,7 @@ function buildLobbySingleObject(ctx: GcContextBase, lobby: LobbyState): CMsgSOSi
     };
 }
 
-function buildLobbyMultipleObjects(ctx: GcContextBase, lobby: LobbyState): CMsgSOMultipleObjects {
+function buildLobbyMultipleObjects(ctx: GcContextBase, lobby: any): CMsgSOMultipleObjects {
     // Existing lobby members are notified like the legacy GC: UpdateMultiple
     // carries only CSODOTALobby (2004). Member names and server-static data are
     // part of the create-time SO cache, not the join-time update.
@@ -1642,7 +1656,7 @@ function buildLobbyMultipleObjects(ctx: GcContextBase, lobby: LobbyState): CMsgS
     };
 }
 
-function buildLobbyObject(lobby: LobbyState): CSODOTALobby {
+function buildLobbyObject(lobby: any): CSODOTALobby {
     return {
         lobbyId: lobby.lobbyId,
         gameMode: lobby.gameMode,
@@ -1701,7 +1715,7 @@ function buildLobbyObject(lobby: LobbyState): CSODOTALobby {
     };
 }
 
-function buildLobbyMembers(lobby: LobbyState): CSODOTALobbyMember[] {
+function buildLobbyMembers(lobby: any): CSODOTALobbyMember[] {
     const members: CSODOTALobbyMember[] = [];
     for (let i = 0; i < lobby.members.length; i++) {
         const member = lobby.members[i];
@@ -1718,7 +1732,7 @@ function buildLobbyMembers(lobby: LobbyState): CSODOTALobbyMember[] {
     return members;
 }
 
-function buildStaticLobbyObject(lobby: LobbyState): CSODOTAStaticLobby {
+function buildStaticLobbyObject(lobby: any): CSODOTAStaticLobby {
     return {
         allMembers: lobby.members.map((member) => ({
             name: member.personaName
@@ -1731,13 +1745,13 @@ function buildLobbyInviteObject(): CSODOTALobbyInvite {
     return {};
 }
 
-function buildServerLobbyObject(lobby: LobbyState): CSODOTAServerLobby {
+function buildServerLobbyObject(lobby: any): CSODOTAServerLobby {
     return {
         allMembers: lobby.members.map(() => ({}))
     };
 }
 
-function buildServerStaticLobbyObject(lobby: LobbyState): CSODOTAServerStaticLobby {
+function buildServerStaticLobbyObject(lobby: any): CSODOTAServerStaticLobby {
     return {
         allMembers: lobby.members.map((member) => ({
             steamId: member.steamId,
@@ -1764,7 +1778,7 @@ function memberIndices(count: number): number[] {
     return indices;
 }
 
-function broadcastLobby(ctx: GcContextBase, lobby: LobbyState, exceptSteamId: bigint, includeServer: boolean): void {
+function broadcastLobby(ctx: GcContextBase, lobby: any, exceptSteamId: bigint, includeServer: boolean): void {
     const payload = buildLobbyMultipleObjects(ctx, lobby);
     if (includeServer && lobby.serverSteamId !== 0n && lobby.serverSteamId !== exceptSteamId) {
         sendTo(ctx, lobby.serverSteamId, Msg.SOCacheUpdated, payload);
@@ -1783,12 +1797,12 @@ function broadcastLobby(ctx: GcContextBase, lobby: LobbyState, exceptSteamId: bi
     }
 }
 
-function subscribeToLobby(ctx: GcContextBase, steamId: bigint, lobby: LobbyState): void {
+function subscribeToLobby(ctx: GcContextBase, steamId: bigint, lobby: any): void {
     sendTo(ctx, steamId, Msg.SOCacheSubscribed, buildLobbySoCacheSubscribed(ctx, lobby));
     sendTo(ctx, steamId, Msg.SOSingleObject, buildLobbySingleObject(ctx, lobby));
 }
 
-function subscribeToLobbyObjectOnly(ctx: GcContextBase, steamId: bigint, lobby: LobbyState): void {
+function subscribeToLobbyObjectOnly(ctx: GcContextBase, steamId: bigint, lobby: any): void {
     sendTo(ctx, steamId, Msg.SOCacheSubscribed, buildLobbyObjectOnlySubscribed(ctx, lobby));
     sendTo(ctx, steamId, Msg.SOSingleObject, buildLobbySingleObject(ctx, lobby));
 }
@@ -1857,11 +1871,11 @@ function sendTyped<TMessage>(
     return ctx.services.lobby.queueMessage(steamId, messageType, payload, true);
 }
 
-function publishLobby(services: DotaLobbyService, lobby: LobbyState): void {
+function publishLobby(services: DotaLobbyService, lobby: any): void {
     services.publishSnapshot(buildMatchSnapshot(lobby));
 }
 
-function buildMatchSnapshot(lobby: LobbyState): DotaLobbyMatchSnapshot {
+function buildMatchSnapshot(lobby: any): DotaLobbyMatchSnapshot {
     const players: DotaLobbyMatchPlayer[] = [];
     for (let i = 0; i < lobby.members.length; i++) {
         const member = lobby.members[i];
@@ -1942,7 +1956,7 @@ function collectLobbies(
     return result;
 }
 
-function createInvite(lobby: LobbyState, ctx: GcContextBase, targetSteamId: bigint): LobbyInviteState {
+function createInvite(lobby: any, ctx: GcContextBase, targetSteamId: bigint): LobbyInviteState {
     const invite: LobbyInviteState = {
         inviteId: nextId(ctx.clock.now()),
         lobbyId: lobby.lobbyId,

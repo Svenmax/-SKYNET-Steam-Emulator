@@ -474,9 +474,9 @@ function buildBattleReportInfo(matches: DotaMatchPlayer[], now: number): CMsgBat
 function buildBattleReportAggregateStats(
     matches: DotaMatchPlayer[],
     accountId: number,
-    keys: readonly { readonly heroId?: number; readonly predictedPosition?: number }[]
-): CMsgBattleReportAggregateStats {
-    let aggregateKeys: { heroId: number; predictedPosition: number }[] = [];
+    keys: any
+): any {
+    let aggregateKeys: any = [];
     if (keys.length === 0) {
         aggregateKeys = uniqueBattleReportKeys(matches);
     } else {
@@ -489,19 +489,19 @@ function buildBattleReportAggregateStats(
         }
     }
 
-    const result = [];
+    const result: any = [];
     for (let i = 0; i < aggregateKeys.length; i++) {
         const key = aggregateKeys[i];
         result.push(buildBattleReportAggregate(matches, accountId, key.heroId, key.predictedPosition));
     }
-    return { result };
+    return { result: result };
 }
 
 function uniqueBattleReportKeys(
     matches: DotaMatchPlayer[]
-): { heroId: number; predictedPosition: number }[] {
-    const seen: string[] = [];
-    const result: { heroId: number; predictedPosition: number }[] = [];
+): any {
+    const seen: any = [];
+    const result: any = [];
     for (let i = 0; i < matches.length; i++) {
         const match = matches[i];
         const key = String(match.heroId) + ":" + String(roleFromPlayerSlot(match.playerSlot));
@@ -529,8 +529,8 @@ function buildBattleReportAggregate(
     accountId: number,
     heroId: number,
     predictedPosition: number
-): CMsgBattleReportAggregateStats_CMsgBattleReportAggregate {
-    const filtered: DotaMatchPlayer[] = [];
+): any {
+    const filtered: any = [];
     for (let i = 0; i < matches.length; i++) {
         const match = matches[i];
         if (match.accountId !== accountId) {
@@ -546,18 +546,18 @@ function buildBattleReportAggregate(
     }
 
     let winCount = 0;
-    const kills: number[] = [];
-    const deaths: number[] = [];
-    const assists: number[] = [];
-    const lastHits: number[] = [];
-    const denies: number[] = [];
-    const gpm: number[] = [];
-    const xpm: number[] = [];
-    const supportGold: number[] = [];
-    const heroDamage: number[] = [];
-    const heroHealing: number[] = [];
-    const towerDamage: number[] = [];
-    const duration: number[] = [];
+    const kills: any = [];
+    const deaths: any = [];
+    const assists: any = [];
+    const lastHits: any = [];
+    const denies: any = [];
+    const gpm: any = [];
+    const xpm: any = [];
+    const supportGold: any = [];
+    const heroDamage: any = [];
+    const heroHealing: any = [];
+    const towerDamage: any = [];
+    const duration: any = [];
     for (let i = 0; i < filtered.length; i++) {
         const match = filtered[i];
         if (match.winner) {
@@ -598,8 +598,8 @@ function buildBattleReportAggregate(
     };
 }
 
-function stat(values: number[]): CMsgBattleReportAggregateStats_CMsgBattleReportStat {
-    if (values.length === 0) {
+function stat(values: any): any {
+    if (values === null || values === undefined || values.length === 0) {
         return { mean: 0, stdev: 0 };
     }
 

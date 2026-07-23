@@ -387,11 +387,17 @@ function toTeamUpsert(
     };
 }
 
-function isMember(team: DotaTeam, accountId: number): boolean {
+function isMember(team: any, accountId: number): boolean {
+    if (team === null || team === undefined) {
+        return false;
+    }
     return findMember(team, accountId) !== null;
 }
 
-function isAdmin(team: DotaTeam, accountId: number): boolean {
+function isAdmin(team: any, accountId: number): boolean {
+    if (team === null || team === undefined) {
+        return false;
+    }
     const member = findMember(team, accountId);
     if (member === null) {
         return false;
@@ -399,7 +405,7 @@ function isAdmin(team: DotaTeam, accountId: number): boolean {
     return member.role === TEAM_ROLE_ADMIN;
 }
 
-function findMember(team: DotaTeam, accountId: number): DotaTeamMember | null {
+function findMember(team: any, accountId: number): any {
     const members = teamMembers(team);
     for (let i = 0; i < members.length; i++) {
         if (members[i].accountId === accountId) {
@@ -409,7 +415,10 @@ function findMember(team: DotaTeam, accountId: number): DotaTeamMember | null {
     return null;
 }
 
-function teamMembers(team: DotaTeam): DotaTeamMember[] {
+function teamMembers(team: any): any {
+    if (team === null || team === undefined) {
+        return [];
+    }
     return Array.isArray(team.members) ? team.members : [];
 }
 
