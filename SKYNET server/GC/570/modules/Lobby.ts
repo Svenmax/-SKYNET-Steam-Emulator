@@ -2053,27 +2053,35 @@ function buildInviteUnsubscribed(lobbyId: bigint): CMsgSOCacheUnsubscribed {
 }
 
 function buildInviteObject(invite: LobbyInviteState): any {
-    const lobby = store.lobbies.get(invite.lobbyId);
-    const hasLobby = lobby !== undefined;
+    // TypeSharp treats Map.get results as void/null without reliable narrowing.
+    const lobby: any = store.lobbies.get(invite.lobbyId);
     const members: any = [];
-    if (hasLobby) {
-        const lobbyMembers = lobby.members;
-        for (let i = 0; i < lobbyMembers.length; i++) {
-            const member = lobbyMembers[i];
-            members.push({
-                name: member.personaName,
-                steamId: member.steamId
-            });
+    let customGameId: bigint = 0n;
+    let customGameCrc: bigint = 0n;
+    let customGameTimestamp = 0;
+    if (lobby !== null && lobby !== undefined) {
+        const lobbyMembers: any = lobby.members;
+        if (lobbyMembers !== null && lobbyMembers !== undefined) {
+            for (let i = 0; i < lobbyMembers.length; i++) {
+                const member = lobbyMembers[i];
+                members.push({
+                    name: member.personaName,
+                    steamId: member.steamId
+                });
+            }
         }
+        customGameId = lobby.customGameId;
+        customGameCrc = lobby.customGameCrc;
+        customGameTimestamp = lobby.customGameTimestamp;
     }
     return {
         groupId: invite.lobbyId,
         senderId: invite.senderSteamId,
         senderName: invite.senderName,
         inviteGid: invite.inviteId,
-        customGameId: hasLobby ? lobby.customGameId : 0n,
-        customGameCrc: hasLobby ? lobby.customGameCrc : 0n,
-        customGameTimestamp: hasLobby ? lobby.customGameTimestamp : 0,
+        customGameId: customGameId,
+        customGameCrc: customGameCrc,
+        customGameTimestamp: customGameTimestamp,
         members: members
     };
 }
