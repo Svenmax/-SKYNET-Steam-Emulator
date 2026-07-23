@@ -230,12 +230,12 @@ function asU32(value: number | undefined): number {
     if (value === undefined) {
         return 0;
     }
-    // TypeSharp host maps these through Convert.ToUInt32; clamp first.
+    // TypeSharp host maps these through Convert.ToUInt32.
+    // Dota can send negative pre-game countdown gameTime; clamp to 0.
+    // Do not use the 4294967295 literal here: TypeSharp rejects it as a
+    // number return. Oversized positives are clamped again in host U32Field.
     if (value < 0) {
         return 0;
-    }
-    if (value > 4294967295) {
-        return 4294967295;
     }
     return value;
 }

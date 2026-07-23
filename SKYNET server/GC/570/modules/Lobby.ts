@@ -230,11 +230,14 @@ interface LobbyStore {
     nextMatchId: bigint;
 }
 
-const store: LobbyStore = {
-    lobbies: new Map<bigint, LobbyState>(),
-    bySteam: new Map<bigint, bigint>(),
-    byServer: new Map<bigint, bigint>(),
-    invites: new Map<bigint, LobbyInviteState>(),
+// TypeSharp can collapse typed Map/interface stores to never/void and then
+// reject assignments like store.nextMatchId = ... which aborts Lobby exports
+// and cascades into missing registerLobby/emitCurrentLobby symbols.
+const store: any = {
+    lobbies: new Map(),
+    bySteam: new Map(),
+    byServer: new Map(),
+    invites: new Map(),
     nextId: 0n,
     nextMatchId: 0n
 };
