@@ -387,8 +387,12 @@ export class Lobby {
             userOffline = false;
         }
 
+        let groupId = 0n;
+        if (lobby !== null) {
+            groupId = lobby.lobbyId;
+        }
         ctx.reply<CMsgInvitationCreated>(Msg.GCInvitationCreated, Proto.CMsgInvitationCreated, {
-            groupId: lobby?.lobbyId ?? 0n,
+            groupId: groupId,
             steamId: targetSteamId,
             userOffline
         });
@@ -774,7 +778,13 @@ export class Lobby {
         const request = ctx.decode(Proto.CMsgGameMatchSignOut) as CMsgGameMatchSignOut;
         const lobby = serverLobby(ctx.steamId);
         const matchId = lobby === null ? (request.matchId ?? 0n) : ensureMatchId(lobby);
-        const recipients = lobby === null ? [] : lobby.members.map((member) => member.steamId);
+        const recipients: any = [];
+        if (lobby !== null) {
+            const members = lobby.members;
+            for (let i = 0; i < members.length; i++) {
+                recipients.push(members[i].steamId);
+            }
+        }
 
         if (lobby !== null) {
             refreshLobby(lobby, ctx.clock.now());
@@ -1236,7 +1246,15 @@ function findMemberByAccountId(lobby: any, accountId: number): any {
 }
 
 function removeLobbyMember(ctx: GcContextBase, lobby: any, member: any, kicked: boolean): void {
-    lobby.members = lobby.members.filter((candidate) => candidate.steamId !== member.steamId);
+    const kept: any = [];
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        const candidate = members[i];
+        if (candidate.steamId !== member.steamId) {
+            kept.push(candidate);
+        }
+    }
+    lobby.members = kept;
     store.bySteam.delete(member.steamId);
 
     if (kicked) {
@@ -1250,20 +1268,39 @@ function removeLobbyMember(ctx: GcContextBase, lobby: any, member: any, kicked: 
 }
 
 function shuffleLobbyTeams(lobby: any): void {
-    const candidates = lobby.members.filter(
-        (member) => member.coachTeam === TEAM_NONE && (member.team === TEAM_GOOD || member.team === TEAM_BAD)
-    );
-    const ordered = candidates.slice().sort((left, right) => {
-        if (left.slot !== right.slot) {
-            return left.slot - right.slot;
+    const candidates: any = [];
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+        if (member.coachTeam === TEAM_NONE && (member.team === TEAM_GOOD || member.team === TEAM_BAD)) {
+            candidates.push(member);
         }
+    }
 
-        return left.accountId - right.accountId;
-    });
+    // Insertion sort by slot then accountId (TypeSharp has no Array.sort typing).
+    for (let i = 1; i < candidates.length; i++) {
+        const current = candidates[i];
+        let j = i - 1;
+        while (j >= 0) {
+            const left = candidates[j];
+            let shouldMove = false;
+            if (left.slot > current.slot) {
+                shouldMove = true;
+            } else if (left.slot === current.slot && left.accountId > current.accountId) {
+                shouldMove = true;
+            }
+            if (!shouldMove) {
+                break;
+            }
+            candidates[j + 1] = left;
+            j = j - 1;
+        }
+        candidates[j + 1] = current;
+    }
 
-    for (let i = 0; i < ordered.length; i++) {
-        ordered[i].team = i % 2 === 0 ? TEAM_GOOD : TEAM_BAD;
-        ordered[i].slot = Math.floor(i / 2) + 1;
+    for (let i = 0; i < candidates.length; i++) {
+        candidates[i].team = i % 2 === 0 ? TEAM_GOOD : TEAM_BAD;
+        candidates[i].slot = Math.floor(i / 2) + 1;
     }
 
     clearTeamDetail(lobby, TEAM_GOOD);
@@ -1485,10 +1522,12 @@ function sendLobbyPlayerItemsToServer(ctx: RawMessageContext, lobby: any): void 
     // the server owns each member's CSOEconItem list before RUN/hero spawn.
     // Without this step items can appear equipped in the client UI while the
     // in-game hero uses defaults because the server never saw equippedState.
-    for (let i = 0; i < lobby.members.length; i++) {
-        const member = lobby.members[i];
-        const inventory = ctx.services.items.getInventory(member.steamId);
-        const ownerSync = inventory.version === 0n ? 1n : inventory.version;
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+        const inventory: any = ctx.services.items.getInventory(member.steamId);
+        const inventoryVersion: any = inventory.version;
+        const ownerSync = inventoryVersion === 0n ? 1n : inventoryVersion;
         sendTo(
             ctx,
             lobby.serverSteamId,
@@ -1549,15 +1588,19 @@ function prepareLobbyForLaunch(ctx: GcContextBase, lobby: any): void {
         return;
     }
 
-    const removed: bigint[] = [];
-    lobby.members = lobby.members.filter((member) => {
+    const removed: any = [];
+    const kept: any = [];
+    const currentMembers = lobby.members;
+    for (let i = 0; i < currentMembers.length; i++) {
+        const member = currentMembers[i];
         const keep = member.team !== TEAM_POOL && member.team !== TEAM_SPECTATOR;
-        if (!keep) {
+        if (keep) {
+            kept.push(member);
+        } else {
             removed.push(member.steamId);
         }
-
-        return keep;
-    });
+    }
+    lobby.members = kept;
 
     for (let i = 0; i < removed.length; i++) {
         store.bySteam.delete(removed[i]);
@@ -1732,11 +1775,14 @@ function buildLobbyMembers(lobby: any): CSODOTALobbyMember[] {
     return members;
 }
 
-function buildStaticLobbyObject(lobby: any): CSODOTAStaticLobby {
+function buildStaticLobbyObject(lobby: any): any {
+    const allMembers: any = [];
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        allMembers.push({ name: members[i].personaName });
+    }
     return {
-        allMembers: lobby.members.map((member) => ({
-            name: member.personaName
-        })),
+        allMembers: allMembers,
         isPlayerDraft: false
     };
 }
@@ -1745,22 +1791,33 @@ function buildLobbyInviteObject(): CSODOTALobbyInvite {
     return {};
 }
 
-function buildServerLobbyObject(lobby: any): CSODOTAServerLobby {
+function buildServerLobbyObject(lobby: any): any {
+    const allMembers: any = [];
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        allMembers.push({});
+    }
     return {
-        allMembers: lobby.members.map(() => ({}))
+        allMembers: allMembers
     };
 }
 
-function buildServerStaticLobbyObject(lobby: any): CSODOTAServerStaticLobby {
-    return {
-        allMembers: lobby.members.map((member) => ({
+function buildServerStaticLobbyObject(lobby: any): any {
+    const allMembers: any = [];
+    const members = lobby.members;
+    for (let i = 0; i < members.length; i++) {
+        const member = members[i];
+        allMembers.push({
             steamId: member.steamId,
             wasMvpLastGame: false,
             isPlusSubscriber: true,
             favoriteTeamPacked: 0n,
             isSteamChina: false,
             bannedHeroIds: DEFAULT_SERVER_STATIC_BANNED_HERO_IDS
-        })),
+        });
+    }
+    return {
+        allMembers: allMembers,
         postPatchStrategyTimeBuffer: 0
     };
 }
@@ -1992,21 +2049,29 @@ function buildInviteUnsubscribed(lobbyId: bigint): CMsgSOCacheUnsubscribed {
     return { ownerSoid: { type: LOBBY_INVITE_OWNER_TYPE, id: lobbyId } };
 }
 
-function buildInviteObject(invite: LobbyInviteState): CSODOTALobbyInvite {
-    const lobby = store.lobbies.get(invite.lobbyId) ?? null;
+function buildInviteObject(invite: LobbyInviteState): any {
+    const lobby = store.lobbies.get(invite.lobbyId);
+    const hasLobby = lobby !== undefined;
+    const members: any = [];
+    if (hasLobby) {
+        const lobbyMembers = lobby.members;
+        for (let i = 0; i < lobbyMembers.length; i++) {
+            const member = lobbyMembers[i];
+            members.push({
+                name: member.personaName,
+                steamId: member.steamId
+            });
+        }
+    }
     return {
         groupId: invite.lobbyId,
         senderId: invite.senderSteamId,
         senderName: invite.senderName,
         inviteGid: invite.inviteId,
-        customGameId: lobby?.customGameId ?? 0n,
-        customGameCrc: lobby?.customGameCrc ?? 0n,
-        customGameTimestamp: lobby?.customGameTimestamp ?? 0,
-        members:
-            lobby?.members.map((member) => ({
-                name: member.personaName,
-                steamId: member.steamId
-            })) ?? []
+        customGameId: hasLobby ? lobby.customGameId : 0n,
+        customGameCrc: hasLobby ? lobby.customGameCrc : 0n,
+        customGameTimestamp: hasLobby ? lobby.customGameTimestamp : 0,
+        members: members
     };
 }
 
@@ -2018,15 +2083,13 @@ function emitCurrentLobbyInvites<TRequest, TResponse>(ctx: HandlerContext<TReque
     });
 }
 
-function takeInvite(lobbyId: bigint, targetSteamId: bigint): LobbyInviteState | null {
-    let selected: LobbyInviteState | null = null;
-    const invites = Array.from(store.invites.values());
-    for (let i = 0; i < invites.length; i++) {
-        const invite = invites[i];
-        if (invite.lobbyId === lobbyId && invite.targetSteamId === targetSteamId) {
+function takeInvite(lobbyId: bigint, targetSteamId: bigint): any {
+    let selected: any = null;
+    store.invites.forEach((invite) => {
+        if (selected === null && invite.lobbyId === lobbyId && invite.targetSteamId === targetSteamId) {
             selected = invite;
         }
-    }
+    });
 
     if (selected !== null) {
         store.invites.delete(selected.inviteId);
