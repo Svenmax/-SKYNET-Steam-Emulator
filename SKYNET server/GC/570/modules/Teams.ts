@@ -443,7 +443,8 @@ function takePendingInvite(accountId: number): PendingTeamInvite | null {
 }
 
 function steamIdFromAccountId(accountId: number): bigint {
-    return 76561197960265728n + BigInt(accountId >>> 0);
+    // TypeSharp has no >>> (ShiftRightUnsigned); account IDs are non-negative.
+    return 76561197960265728n + BigInt(accountId);
 }
 
 function hasText(value: string | undefined): boolean {
