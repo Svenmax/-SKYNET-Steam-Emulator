@@ -131,7 +131,134 @@ namespace SKYNET.Steamworks.Implementation
                 {
                     Write($"GC server did not handle message (MsgType = {requestMsg})");
                 }
+
+                // Dota store purchase waits for MicroTxnAuthorizationResponse after
+                // StorePurchaseInitResponse. Without it the client Cancels and never
+                // Finalizes. Auto-authorize offline so the purchase flow can proceed
+                // (and so Init-time SO grants are not discarded by UI cancel logic).
+                if (!gameServer && requestMsg == 2510u)
+                {
+                    TryQueueMicroTxnAuthorization(response);
+                }
             }, highPriority: true);
+        }
+
+        private void TryQueueMicroTxnAuthorization(APIClient.ApiGCExchangeResponse response)
+        {
+            try
+            {
+                ulong orderId = 0;
+                if (response?.Messages != null)
+                {
+                    foreach (var message in response.Messages)
+                    {
+                        if (message == null || message.MessageType != 2511u || string.IsNullOrEmpty(message.PayloadBase64))
+                        {
+                            continue;
+                        }
+
+                        byte[] initBody = Convert.FromBase64String(message.PayloadBase64);
+                        if (TryReadProtobufVarintField(initBody, fieldNumber: 2, out ulong txnId) && txnId != 0)
+                        {
+                            orderId = txnId;
+                            break;
+                        }
+                    }
+                }
+
+                if (orderId == 0)
+                {
+                    orderId = (ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                }
+
+                CallbackManager.AddCallback(new MicroTxnAuthorizationResponse_t
+                {
+                    m_unAppID = SteamEmulator.AppID,
+                    m_ulOrderID = orderId,
+                    m_bAuthorized = 1
+                });
+                Write($"MicroTxnAuthorizationResponse auto-authorized orderId={orderId} appId={SteamEmulator.AppID}");
+            }
+            catch (Exception ex)
+            {
+                Write($"MicroTxnAuthorizationResponse queue failed: {ex.Message}");
+            }
+        }
+
+        private static bool TryReadProtobufVarintField(byte[] payload, int fieldNumber, out ulong value)
+        {
+            value = 0;
+            if (payload == null || payload.Length == 0 || fieldNumber <= 0)
+            {
+                return false;
+            }
+
+            int offset = 0;
+            while (offset < payload.Length)
+            {
+                if (!TryReadVarint(payload, ref offset, out ulong tag))
+                {
+                    return false;
+                }
+
+                int number = (int)(tag >> 3);
+                int wireType = (int)(tag & 0x7);
+                if (wireType == 0)
+                {
+                    if (!TryReadVarint(payload, ref offset, out ulong fieldValue))
+                    {
+                        return false;
+                    }
+
+                    if (number == fieldNumber)
+                    {
+                        value = fieldValue;
+                        return true;
+                    }
+                }
+                else if (wireType == 1)
+                {
+                    offset += 8;
+                }
+                else if (wireType == 2)
+                {
+                    if (!TryReadVarint(payload, ref offset, out ulong len) || offset + (int)len > payload.Length)
+                    {
+                        return false;
+                    }
+
+                    offset += (int)len;
+                }
+                else if (wireType == 5)
+                {
+                    offset += 4;
+                }
+                else
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryReadVarint(byte[] payload, ref int offset, out ulong value)
+        {
+            value = 0;
+            int shift = 0;
+            while (offset < payload.Length && shift < 64)
+            {
+                byte b = payload[offset++];
+                value |= (ulong)(b & 0x7F) << shift;
+                if ((b & 0x80) == 0)
+                {
+                    return true;
+                }
+
+                shift += 7;
+            }
+
+            return false;
         }
 
         private bool QueueServerMessages(APIClient.ApiGCExchangeResponse response, uint requestMsg, bool gameServer)

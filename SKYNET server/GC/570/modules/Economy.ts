@@ -289,16 +289,24 @@ function clearPurchasesForAccount(accountId: number): number {
 function grantPurchaseItems(ctx: RawMessageContext, defIndexes: any): any {
     const itemIds: any = [];
     if (defIndexes === null || defIndexes === undefined || defIndexes.length === 0) {
+        ctx.logger.info("Economy: grant skipped empty defIndexes");
         return itemIds;
     }
 
     const inventory = ctx.services.items.getInventory();
     for (let i = 0; i < defIndexes.length; i++) {
         const defIndex = defIndexes[i];
-        const catalogItem = ctx.services.items.getCatalogItem(defIndex);
+        let catalogItem = ctx.services.items.getCatalogItem(defIndex);
         if (catalogItem === null) {
-            ctx.logger.info("Economy: grant skipped unknown defIndex=" + defIndex);
-            continue;
+            // Store purchase may request a def that is not in the imported
+            // catalog snapshot. Still emit a synthetic CSOEconItem so the
+            // client backpack path can observe the grant (gbe does the same).
+            ctx.logger.info("Economy: grant synthetic catalog defIndex=" + defIndex);
+            catalogItem = {
+                defIndex: defIndex,
+                name: "store-grant-" + defIndex,
+                qualityId: 4
+            };
         }
 
         const itemId = buildDotaItemInstanceId(inventory.steamId, catalogItem.defIndex);
