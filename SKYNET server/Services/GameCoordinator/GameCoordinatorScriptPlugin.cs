@@ -3807,9 +3807,25 @@ internal sealed class ScriptExchangeHost
     private static uint U32Field(TsObject value, string fieldName, string path, uint defaultValue = 0)
     {
         var field = value.GetField(fieldName);
-        return field is TsNull or TsVoid
-            ? defaultValue
-            : Convert.ToUInt32(ToNumber(field, $"{path}.{fieldName}"));
+        if (field is TsNull or TsVoid)
+        {
+            return defaultValue;
+        }
+
+        // Dota GC payloads can include negative countdown timers (e.g. gameTime
+        // before match start). Convert.ToUInt32 throws OverflowException on those.
+        var number = ToNumber(field, $"{path}.{fieldName}");
+        if (double.IsNaN(number) || double.IsInfinity(number) || number <= 0d)
+        {
+            return 0u;
+        }
+
+        if (number >= uint.MaxValue)
+        {
+            return uint.MaxValue;
+        }
+
+        return (uint)number;
     }
 
     private static ulong U64Field(TsObject value, string fieldName, string path, ulong defaultValue = 0)

@@ -123,21 +123,23 @@ export class Match {
             return true;
         }
 
+        // Host stores these as UInt32. Dota sends negative gameTime during pre-game
+        // countdown; Convert.ToUInt32 throws OverflowException and aborts message 8041.
         ctx.services.match.recordRealtimeStats({
             matchId: delayed.match.matchId ?? 0n,
             serverSteamId: delayed.match.serverSteamId ?? ctx.steamId,
-            timestamp: delayed.match.timestamp ?? ctx.clock.now(),
-            gameTime: delayed.match.gameTime ?? 0,
-            gameState: delayed.match.gameState ?? 0,
-            gameMode: delayed.match.gameMode ?? 0,
-            lobbyType: delayed.match.lobbyType ?? 0,
-            leagueId: delayed.match.leagueId ?? 0,
-            radiantScore: scoreForTeam(delayed.teams, 2, 0),
-            direScore: scoreForTeam(delayed.teams, 3, 1),
-            playerCount: countRealtimePlayers(delayed.teams),
-            buildingCount: delayed.buildings?.length ?? 0,
+            timestamp: asU32(delayed.match.timestamp ?? ctx.clock.now()),
+            gameTime: asU32(delayed.match.gameTime),
+            gameState: asU32(delayed.match.gameState),
+            gameMode: asU32(delayed.match.gameMode),
+            lobbyType: asU32(delayed.match.lobbyType),
+            leagueId: asU32(delayed.match.leagueId),
+            radiantScore: asU32(scoreForTeam(delayed.teams, 2, 0)),
+            direScore: asU32(scoreForTeam(delayed.teams, 3, 1)),
+            playerCount: asU32(countRealtimePlayers(delayed.teams)),
+            buildingCount: asU32(delayed.buildings?.length ?? 0),
             deltaFrame: delayed.deltaFrame ?? false,
-            payloadSize: ctx.payload.length
+            payloadSize: asU32(ctx.payload.length)
         });
         return true;
     }
@@ -222,6 +224,20 @@ export class Match {
         });
         return true;
     }
+}
+
+function asU32(value: number | undefined): number {
+    if (value === undefined) {
+        return 0;
+    }
+    // TypeSharp host maps these through Convert.ToUInt32; clamp first.
+    if (value < 0) {
+        return 0;
+    }
+    if (value > 4294967295) {
+        return 4294967295;
+    }
+    return value;
 }
 
 function countRealtimePlayers(teams: CMsgDOTARealtimeGameStatsTerse_TeamDetails[] | undefined): number {
