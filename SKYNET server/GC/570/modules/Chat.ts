@@ -348,7 +348,8 @@ export class Chat {
 }
 
 function privateChannelName(channelName: string | undefined, a: number, b: number): string {
-    const trimmed = (channelName ?? "").trim();
+    const rawName: string = channelName === undefined ? "" : channelName;
+    const trimmed: string = rawName.trim();
     if (trimmed.length > 0) {
         return trimmed;
     }

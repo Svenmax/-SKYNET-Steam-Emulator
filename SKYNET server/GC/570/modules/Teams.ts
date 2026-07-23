@@ -1,4 +1,4 @@
-import { DotaTeam, DotaTeamMember, RawMessageContext, gc } from "../framework/gc";
+import { DotaTeam, DotaTeamMember, DotaTeamUpsert, RawMessageContext, gc } from "../framework/gc";
 import {
     CMsgDOTACreateTeam,
     CMsgDOTACreateTeamResponse,
@@ -90,11 +90,13 @@ export class Teams {
         const team = ctx.services.teams.get(teamId);
         let result: number = CMsgDOTAEditTeamDetailsResponse_Result.FailureUnspecifiedError;
 
-        if (team !== null && isAdmin(team, ctx.accountId) && hasText(request.name) && hasText(request.tag)) {
-            ctx.services.teams.upsert(toTeamUpsert(teamId, request, team));
-            result = CMsgDOTAEditTeamDetailsResponse_Result.Success;
-        } else if (team !== null && !isMember(team, ctx.accountId)) {
-            result = CMsgDOTAEditTeamDetailsResponse_Result.FailureNotMember;
+        if (team !== null) {
+            if (isAdmin(team, ctx.accountId) && hasText(request.name) && hasText(request.tag)) {
+                ctx.services.teams.upsert(toTeamUpsert(teamId, request, team));
+                result = CMsgDOTAEditTeamDetailsResponse_Result.Success;
+            } else if (!isMember(team, ctx.accountId)) {
+                result = CMsgDOTAEditTeamDetailsResponse_Result.FailureNotMember;
+            }
         }
 
         ctx.reply<CMsgDOTAEditTeamDetailsResponse>(
@@ -111,15 +113,17 @@ export class Teams {
         let result: number = ETeamInviteResult.TeamInviteErrorUnspecified;
         let inviteeName = "";
 
-        if (team !== null && !isAdmin(team, ctx.accountId)) {
+        if (team === null) {
+            // leave default error
+        } else if (!isAdmin(team, ctx.accountId)) {
             result = ETeamInviteResult.TeamInviteErrorInviterNotAdmin;
-        } else if (team !== null && isMember(team, request.accountId ?? 0)) {
+        } else if (isMember(team, request.accountId === undefined ? 0 : request.accountId)) {
             result = ETeamInviteResult.TeamInviteErrorInviteeAlreadyMember;
-        } else if (team !== null && teamMembers(team).length >= TEAM_MEMBER_LIMIT) {
+        } else if (teamMembers(team).length >= TEAM_MEMBER_LIMIT) {
             result = ETeamInviteResult.TeamInviteErrorTeamAtMemberLimit;
-        } else if (team !== null && pendingInviteFor(request.accountId ?? 0) !== null) {
+        } else if (pendingInviteFor(request.accountId === undefined ? 0 : request.accountId) !== null) {
             result = ETeamInviteResult.TeamInviteErrorInviteeBusy;
-        } else if (team !== null) {
+        } else {
             const targetAccount = request.accountId ?? 0;
             const accountName = ctx.services.stats.lookupAccountName(targetAccount).accountName;
             inviteeName = accountName;
@@ -194,13 +198,15 @@ export class Teams {
         const team = ctx.services.teams.get(request.teamId ?? 0);
         let result: number = CMsgDOTAKickTeamMemberResponse_Result.FailureUnspecifiedError;
 
-        if (team !== null && !isAdmin(team, ctx.accountId)) {
+        if (team === null) {
+            // leave default error
+        } else if (!isAdmin(team, ctx.accountId)) {
             result = CMsgDOTAKickTeamMemberResponse_Result.FailureKickerNotAdmin;
-        } else if (team !== null && !isMember(team, request.accountId ?? 0)) {
+        } else if (!isMember(team, request.accountId === undefined ? 0 : request.accountId)) {
             result = CMsgDOTAKickTeamMemberResponse_Result.FailureKickeeNotMember;
-        } else if (team !== null) {
-            ctx.services.teams.removeMember(team.teamId, request.accountId ?? 0);
-            ctx.services.teams.deletePlayerInfo(request.accountId ?? 0);
+        } else {
+            ctx.services.teams.removeMember(team.teamId, request.accountId === undefined ? 0 : request.accountId);
+            ctx.services.teams.deletePlayerInfo(request.accountId === undefined ? 0 : request.accountId);
             result = CMsgDOTAKickTeamMemberResponse_Result.Success;
         }
 
@@ -216,13 +222,15 @@ export class Teams {
         const newAdminAccountId = request.newAdminAccountId ?? 0;
         let result: number = CMsgDOTATransferTeamAdminResponse_Result.FailureUnspecifiedError;
 
-        if (team !== null && !isAdmin(team, ctx.accountId)) {
+        if (team === null) {
+            // leave default error
+        } else if (!isAdmin(team, ctx.accountId)) {
             result = CMsgDOTATransferTeamAdminResponse_Result.FailureNotAdmin;
-        } else if (team !== null && newAdminAccountId === ctx.accountId) {
+        } else if (newAdminAccountId === ctx.accountId) {
             result = CMsgDOTATransferTeamAdminResponse_Result.FailureSameAccount;
-        } else if (team !== null && !isMember(team, newAdminAccountId)) {
+        } else if (!isMember(team, newAdminAccountId)) {
             result = CMsgDOTATransferTeamAdminResponse_Result.FailureNotMember;
-        } else if (team !== null) {
+        } else {
             const members = teamMembers(team);
             for (let i = 0; i < members.length; i++) {
                 const member = members[i];
@@ -280,7 +288,15 @@ export class Teams {
         const team = teamId === 0 ? null : ctx.services.teams.get(teamId);
         let result: number = CMsgGCPlayerInfoSubmitResponse_EResult.Success;
 
-        if (teamId !== 0 && (team === null || !isMember(team, ctx.accountId))) {
+        let notMember = false;
+        if (teamId !== 0) {
+            if (team === null) {
+                notMember = true;
+            } else if (!isMember(team, ctx.accountId)) {
+                notMember = true;
+            }
+        }
+        if (notMember) {
             result = CMsgGCPlayerInfoSubmitResponse_EResult.ErrorNotMemberOfTeam;
         } else {
             ctx.services.teams.savePlayerInfo({
@@ -336,19 +352,38 @@ function validateCreateTeam(ctx: RawMessageContext, request: CMsgDOTACreateTeam)
     return CMsgDOTACreateTeamResponse_Result.Success;
 }
 
-function toTeamUpsert(teamId: number, request: CMsgDOTACreateTeam | CMsgDOTAEditTeamDetails, existing?: DotaTeam) {
+function toTeamUpsert(
+    teamId: number,
+    request: CMsgDOTACreateTeam | CMsgDOTAEditTeamDetails,
+    existing: DotaTeam | null = null
+): DotaTeamUpsert {
+    const existingName = existing === null ? "" : existing.name;
+    const existingTag = existing === null ? "" : existing.tag;
+    const existingLogo = existing === null ? 0n : existing.logo;
+    const existingBaseLogo = existing === null ? 0n : existing.baseLogo;
+    const existingBannerLogo = existing === null ? 0n : existing.bannerLogo;
+    const existingCountry = existing === null ? "" : existing.countryCode;
+    const existingUrl = existing === null ? "" : existing.url;
+    const existingAbbrev = existing === null ? "" : existing.abbreviation;
+
+    let pickupTeam = false;
+    if ("pickupTeam" in request) {
+        const createRequest = request as CMsgDOTACreateTeam;
+        pickupTeam = createRequest.pickupTeam === undefined ? false : createRequest.pickupTeam;
+    }
+
     return {
         teamId,
-        name: request.name ?? existing?.name ?? "",
-        tag: request.tag ?? existing?.tag ?? "",
-        logo: request.logo ?? existing?.logo ?? 0n,
-        baseLogo: request.baseLogo ?? existing?.baseLogo ?? 0n,
-        bannerLogo: request.bannerLogo ?? existing?.bannerLogo ?? 0n,
-        sponsorLogo: request.sponsorLogo ?? 0n,
-        countryCode: request.countryCode ?? existing?.countryCode ?? "",
-        url: request.url ?? existing?.url ?? "",
-        pickupTeam: "pickupTeam" in request ? (request.pickupTeam ?? false) : false,
-        abbreviation: request.abbreviation ?? existing?.abbreviation ?? ""
+        name: request.name === undefined ? existingName : request.name,
+        tag: request.tag === undefined ? existingTag : request.tag,
+        logo: request.logo === undefined ? existingLogo : request.logo,
+        baseLogo: request.baseLogo === undefined ? existingBaseLogo : request.baseLogo,
+        bannerLogo: request.bannerLogo === undefined ? existingBannerLogo : request.bannerLogo,
+        sponsorLogo: request.sponsorLogo === undefined ? 0n : request.sponsorLogo,
+        countryCode: request.countryCode === undefined ? existingCountry : request.countryCode,
+        url: request.url === undefined ? existingUrl : request.url,
+        pickupTeam,
+        abbreviation: request.abbreviation === undefined ? existingAbbrev : request.abbreviation
     };
 }
 
@@ -357,7 +392,11 @@ function isMember(team: DotaTeam, accountId: number): boolean {
 }
 
 function isAdmin(team: DotaTeam, accountId: number): boolean {
-    return findMember(team, accountId)?.role === TEAM_ROLE_ADMIN;
+    const member = findMember(team, accountId);
+    if (member === null) {
+        return false;
+    }
+    return member.role === TEAM_ROLE_ADMIN;
 }
 
 function findMember(team: DotaTeam, accountId: number): DotaTeamMember | null {
@@ -399,7 +438,8 @@ function steamIdFromAccountId(accountId: number): bigint {
 }
 
 function hasText(value: string | undefined): boolean {
-    return (value ?? "").trim().length > 0;
+    const textValue: string = value === undefined ? "" : value;
+    return textValue.trim().length > 0;
 }
 
 function hasLowercaseOrDigit(value: string): boolean {

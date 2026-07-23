@@ -476,31 +476,48 @@ function buildBattleReportAggregateStats(
     accountId: number,
     keys: readonly { readonly heroId?: number; readonly predictedPosition?: number }[]
 ): CMsgBattleReportAggregateStats {
-    const aggregateKeys =
-        keys.length === 0
-            ? uniqueBattleReportKeys(matches)
-            : keys.map((key) => ({
-                  heroId: key.heroId ?? 0,
-                  predictedPosition: key.predictedPosition ?? -1
-              }));
+    let aggregateKeys: { heroId: number; predictedPosition: number }[] = [];
+    if (keys.length === 0) {
+        aggregateKeys = uniqueBattleReportKeys(matches);
+    } else {
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            aggregateKeys.push({
+                heroId: key.heroId === undefined ? 0 : key.heroId,
+                predictedPosition: key.predictedPosition === undefined ? -1 : key.predictedPosition
+            });
+        }
+    }
 
-    return {
-        result: aggregateKeys.map((key) =>
-            buildBattleReportAggregate(matches, accountId, key.heroId, key.predictedPosition)
-        )
-    };
+    const result = [];
+    for (let i = 0; i < aggregateKeys.length; i++) {
+        const key = aggregateKeys[i];
+        result.push(buildBattleReportAggregate(matches, accountId, key.heroId, key.predictedPosition));
+    }
+    return { result };
 }
 
 function uniqueBattleReportKeys(
     matches: DotaMatchPlayer[]
-): { readonly heroId: number; readonly predictedPosition: number }[] {
-    const seen = new Set<string>();
+): { heroId: number; predictedPosition: number }[] {
+    const seen: string[] = [];
     const result: { heroId: number; predictedPosition: number }[] = [];
-    for (const match of matches) {
-        const key = `${match.heroId}:${roleFromPlayerSlot(match.playerSlot)}`;
-        if (!seen.has(key)) {
-            seen.add(key);
-            result.push({ heroId: match.heroId, predictedPosition: roleFromPlayerSlot(match.playerSlot) });
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        const key = String(match.heroId) + ":" + String(roleFromPlayerSlot(match.playerSlot));
+        let found = false;
+        for (let j = 0; j < seen.length; j++) {
+            if (seen[j] === key) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            seen.push(key);
+            result.push({
+                heroId: match.heroId,
+                predictedPosition: roleFromPlayerSlot(match.playerSlot)
+            });
         }
     }
 
@@ -513,31 +530,71 @@ function buildBattleReportAggregate(
     heroId: number,
     predictedPosition: number
 ): CMsgBattleReportAggregateStats_CMsgBattleReportAggregate {
-    const filtered = matches.filter(
-        (match) =>
-            match.accountId === accountId &&
-            (heroId === 0 || match.heroId === heroId) &&
-            (predictedPosition < 0 || roleFromPlayerSlot(match.playerSlot) === predictedPosition)
-    );
+    const filtered: DotaMatchPlayer[] = [];
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        if (match.accountId !== accountId) {
+            continue;
+        }
+        if (heroId !== 0 && match.heroId !== heroId) {
+            continue;
+        }
+        if (predictedPosition >= 0 && roleFromPlayerSlot(match.playerSlot) !== predictedPosition) {
+            continue;
+        }
+        filtered.push(match);
+    }
+
+    let winCount = 0;
+    const kills: number[] = [];
+    const deaths: number[] = [];
+    const assists: number[] = [];
+    const lastHits: number[] = [];
+    const denies: number[] = [];
+    const gpm: number[] = [];
+    const xpm: number[] = [];
+    const supportGold: number[] = [];
+    const heroDamage: number[] = [];
+    const heroHealing: number[] = [];
+    const towerDamage: number[] = [];
+    const duration: number[] = [];
+    for (let i = 0; i < filtered.length; i++) {
+        const match = filtered[i];
+        if (match.winner) {
+            winCount = winCount + 1;
+        }
+        kills.push(match.kills);
+        deaths.push(match.deaths);
+        assists.push(match.assists);
+        lastHits.push(match.lastHits);
+        denies.push(match.denies);
+        gpm.push(match.gpm);
+        xpm.push(match.xpm);
+        supportGold.push(match.supportGold);
+        heroDamage.push(match.heroDamage);
+        heroHealing.push(match.heroHealing);
+        towerDamage.push(match.towerDamage);
+        duration.push(match.duration);
+    }
 
     return {
         heroId,
         predictedPosition,
         gameCount: filtered.length,
-        winCount: filtered.filter((match) => match.winner).length,
+        winCount,
         laneWinCount: 0,
-        kills: stat(filtered.map((match) => match.kills)),
-        deaths: stat(filtered.map((match) => match.deaths)),
-        assists: stat(filtered.map((match) => match.assists)),
-        lastHits: stat(filtered.map((match) => match.lastHits)),
-        denies: stat(filtered.map((match) => match.denies)),
-        gpm: stat(filtered.map((match) => match.gpm)),
-        xpm: stat(filtered.map((match) => match.xpm)),
-        supportGold: stat(filtered.map((match) => match.supportGold)),
-        heroDamage: stat(filtered.map((match) => match.heroDamage)),
-        heroHealing: stat(filtered.map((match) => match.heroHealing)),
-        towerDamage: stat(filtered.map((match) => match.towerDamage)),
-        duration: stat(filtered.map((match) => match.duration))
+        kills: stat(kills),
+        deaths: stat(deaths),
+        assists: stat(assists),
+        lastHits: stat(lastHits),
+        denies: stat(denies),
+        gpm: stat(gpm),
+        xpm: stat(xpm),
+        supportGold: stat(supportGold),
+        heroDamage: stat(heroDamage),
+        heroHealing: stat(heroHealing),
+        towerDamage: stat(towerDamage),
+        duration: stat(duration)
     };
 }
 
@@ -546,8 +603,17 @@ function stat(values: number[]): CMsgBattleReportAggregateStats_CMsgBattleReport
         return { mean: 0, stdev: 0 };
     }
 
-    const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
-    const variance = values.reduce((sum, value) => sum + (value - mean) * (value - mean), 0) / values.length;
+    let sum = 0;
+    for (let i = 0; i < values.length; i++) {
+        sum = sum + values[i];
+    }
+    const mean = sum / values.length;
+    let varianceSum = 0;
+    for (let i = 0; i < values.length; i++) {
+        const delta = values[i] - mean;
+        varianceSum = varianceSum + delta * delta;
+    }
+    const variance = varianceSum / values.length;
     return { mean, stdev: Math.sqrt(variance) };
 }
 
@@ -649,7 +715,7 @@ function buildProfileBackgroundItem<TRequest, TResponse>(
 function buildProfileCardSlot(
     snapshot: DotaProfileSnapshot,
     profileSlot: DotaProfileSlot
-): CMsgDOTAProfileCard_Slot | null {
+): any {
     if (profileSlot.slotType === PROFILE_SLOT_STAT) {
         const statId = Number(profileSlot.slotValue);
         return {

@@ -260,7 +260,10 @@ export function queueCurrentLobbyServer<TRequest, TResponse>(
     payload: Uint8Array
 ): boolean {
     const lobby = currentLobby(ctx.steamId);
-    if (lobby === null || lobby.serverSteamId === 0n) {
+    if (lobby === null) {
+        return false;
+    }
+    if (lobby.serverSteamId === 0n) {
         return false;
     }
 
@@ -452,7 +455,11 @@ export class Lobby {
     private setTeamSlot(ctx: HandlerContext<CMsgPracticeLobbySetTeamSlot, CMsgGenericResult>): boolean {
         const lobby = currentLobby(ctx.steamId);
         const member = lobby === null ? null : findMember(lobby, ctx.steamId);
-        if (lobby === null || member === null) {
+        if (lobby === null) {
+            ctx.reply({ eresult: FAILURE });
+            return true;
+        }
+        if (member === null) {
             ctx.reply({ eresult: FAILURE });
             return true;
         }
@@ -478,7 +485,11 @@ export class Lobby {
     private setCoach(ctx: HandlerContext<CMsgPracticeLobbySetCoach, CMsgGenericResult>): boolean {
         const lobby = currentLobby(ctx.steamId);
         const member = lobby === null ? null : findMember(lobby, ctx.steamId);
-        if (lobby === null || member === null) {
+        if (lobby === null) {
+            ctx.reply({ eresult: FAILURE });
+            return true;
+        }
+        if (member === null) {
             ctx.reply({ eresult: FAILURE });
             return true;
         }
@@ -556,7 +567,10 @@ export class Lobby {
     private clearPracticeLobbyTeam(ctx: RawMessageContext): boolean {
         const lobby = currentLobby(ctx.steamId);
         const member = lobby === null ? null : findMember(lobby, ctx.steamId);
-        if (lobby === null || member === null) {
+        if (lobby === null) {
+            return true;
+        }
+        if (member === null) {
             return true;
         }
 
@@ -633,16 +647,25 @@ export class Lobby {
         if (lobby.serverRegion !== 0) {
             const map = lobby.customMapName === "" ? "dota" : lobby.customMapName;
             const result = ctx.services.lobby.startDedicatedServer(lobby.lobbyId, map);
-            if (result !== null && result.started) {
-                lobby.serverPort = result.port;
-                ctx.logger.info(
-                    "dedicated started lobby=" + lobby.lobbyId + " port=" + result.port + " state=" + result.state
-                );
+            if (result !== null) {
+                if (result.started) {
+                    lobby.serverPort = result.port;
+                    ctx.logger.info(
+                        "dedicated started lobby=" + lobby.lobbyId + " port=" + result.port + " state=" + result.state
+                    );
+                } else {
+                    lobby.state = LOBBY_UI;
+                    lobby.lan = true;
+                    launchResult = FAILURE;
+                    ctx.logger.info(
+                        "dedicated start failed lobby=" + lobby.lobbyId + " error=" + result.error
+                    );
+                }
             } else {
                 lobby.state = LOBBY_UI;
                 lobby.lan = true;
                 launchResult = FAILURE;
-                ctx.logger.info("dedicated start failed lobby=" + lobby.lobbyId + " error=" + (result?.error ?? ""));
+                ctx.logger.info("dedicated start failed lobby=" + lobby.lobbyId + " error=");
             }
 
             refreshLobby(lobby, ctx.clock.now());
@@ -1287,7 +1310,17 @@ function leavePublishedLobbyState(ctx: GcContextBase): void {
     const snapshots = ctx.services.lobby.listSnapshots();
     for (let i = 0; i < snapshots.length; i++) {
         const snapshot = snapshots[i];
-        if (snapshot.state !== LOBBY_UI || !snapshot.players.some((player) => player.steamId === ctx.steamId)) {
+        if (snapshot.state !== LOBBY_UI) {
+            continue;
+        }
+        let inSnapshot = false;
+        for (let p = 0; p < snapshot.players.length; p++) {
+            if (snapshot.players[p].steamId === ctx.steamId) {
+                inSnapshot = true;
+                break;
+            }
+        }
+        if (!inSnapshot) {
             continue;
         }
 
@@ -1300,15 +1333,19 @@ function destroyLobby(lobby: LobbyState, ctx: GcContextBase | undefined, reason:
     const unsubscribe = ctx === undefined ? null : buildLobbySoCacheUnsubscribed(lobby);
     for (let i = 0; i < lobby.members.length; i++) {
         store.bySteam.delete(lobby.members[i].steamId);
-        if (ctx !== undefined && unsubscribe !== null) {
-            sendTo(ctx, lobby.members[i].steamId, Msg.SOCacheUnsubscribed, unsubscribe);
+        if (ctx !== undefined) {
+            if (unsubscribe !== null) {
+                sendTo(ctx, lobby.members[i].steamId, Msg.SOCacheUnsubscribed, unsubscribe);
+            }
         }
     }
 
     if (lobby.serverSteamId !== 0n) {
         store.byServer.delete(lobby.serverSteamId);
-        if (ctx !== undefined && unsubscribe !== null) {
-            sendTo(ctx, lobby.serverSteamId, Msg.SOCacheUnsubscribed, unsubscribe);
+        if (ctx !== undefined) {
+            if (unsubscribe !== null) {
+                sendTo(ctx, lobby.serverSteamId, Msg.SOCacheUnsubscribed, unsubscribe);
+            }
             ctx.services.lobby.releaseDedicatedServer(lobby.lobbyId, reason);
         }
     }
@@ -1407,7 +1444,10 @@ function buildConnectString(services: DotaLobbyService, lobby: LobbyState): stri
 }
 
 function startRealtimeStats(ctx: RawMessageContext, lobby: LobbyState): void {
-    if (lobby.serverSteamId === 0n || lobby.realtimeStatsStartStopSent) {
+    if (lobby.serverSteamId === 0n) {
+        return;
+    }
+    if (lobby.realtimeStatsStartStopSent) {
         return;
     }
 
