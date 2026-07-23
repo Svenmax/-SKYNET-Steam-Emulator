@@ -242,25 +242,6 @@ namespace SKYNET.Steamworks.Implementation
             return false;
         }
 
-        private static bool TryReadVarint(byte[] payload, ref int offset, out ulong value)
-        {
-            value = 0;
-            int shift = 0;
-            while (offset < payload.Length && shift < 64)
-            {
-                byte b = payload[offset++];
-                value |= (ulong)(b & 0x7F) << shift;
-                if ((b & 0x80) == 0)
-                {
-                    return true;
-                }
-
-                shift += 7;
-            }
-
-            return false;
-        }
-
         private bool QueueServerMessages(APIClient.ApiGCExchangeResponse response, uint requestMsg, bool gameServer)
         {
             bool queued = false;
