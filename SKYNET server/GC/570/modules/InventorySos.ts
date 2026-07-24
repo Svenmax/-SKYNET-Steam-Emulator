@@ -172,19 +172,93 @@ export function buildEconItem(
 }
 
 function econItemsForCache(inventory: DotaRuntimeInventory, onlyEquipped: boolean): DotaCatalogItem[] {
-    const allItems =
-        inventory.catalogItems !== undefined && inventory.catalogItems.length > 0
-            ? inventory.catalogItems
-            : inventory.ownedItems;
-    if (!onlyEquipped) {
-        return allItems;
+    // Prefer equipped + owned; only fall back to catalog slice for open-armory
+    // demos. Never return the full multi-10k catalog into one encode loop.
+    const result: any = [];
+    const seen: any = [];
+
+    const pushItem = (item: any): boolean => {
+        if (item === null || item === undefined) {
+            return result.length < MAX_ECON_SO_ITEMS;
+        }
+        const defIndex = item.defIndex;
+        if (defIndex === null || defIndex === undefined || defIndex === 0) {
+            return result.length < MAX_ECON_SO_ITEMS;
+        }
+        for (let s = 0; s < seen.length; s++) {
+            if (seen[s] === defIndex) {
+                return result.length < MAX_ECON_SO_ITEMS;
+            }
+        }
+        if (result.length >= MAX_ECON_SO_ITEMS) {
+            return false;
+        }
+        seen.push(defIndex);
+        result.push(item);
+        return result.length < MAX_ECON_SO_ITEMS;
+    };
+
+    // 1) Equipped loadout (must always be visible).
+    const equipment = inventory.equipment;
+    if (equipment !== undefined && equipment !== null) {
+        for (let i = 0; i < equipment.length; i++) {
+            const eq = equipment[i];
+            const defIndex = eq.defIndex;
+            let found: any = null;
+            const owned = inventory.ownedItems;
+            if (owned !== undefined && owned !== null) {
+                for (let o = 0; o < owned.length; o++) {
+                    if (owned[o].defIndex === defIndex) {
+                        found = owned[o];
+                        break;
+                    }
+                }
+            }
+            if (found === null) {
+                const catalog = inventory.catalogItems;
+                if (catalog !== undefined && catalog !== null) {
+                    for (let c = 0; c < catalog.length; c++) {
+                        if (catalog[c].defIndex === defIndex) {
+                            found = catalog[c];
+                            break;
+                        }
+                    }
+                }
+            }
+            if (found === null) {
+                found = {
+                    defIndex: defIndex,
+                    name: "equipped-" + defIndex,
+                    qualityId: DEFAULT_QUALITY
+                };
+            }
+            if (!pushItem(found)) {
+                return result;
+            }
+        }
     }
 
-    const result: DotaCatalogItem[] = [];
-    for (let i = 0; i < allItems.length; i++) {
-        const item = allItems[i];
-        if (equipmentForDefIndex(inventory, item.defIndex).length > 0) {
-            result.push(item);
+    if (onlyEquipped) {
+        return result;
+    }
+
+    // 2) Explicitly owned items.
+    const ownedItems = inventory.ownedItems;
+    if (ownedItems !== undefined && ownedItems !== null) {
+        for (let i = 0; i < ownedItems.length; i++) {
+            if (!pushItem(ownedItems[i])) {
+                return result;
+            }
+        }
+    }
+
+    // 3) Limited catalog headroom for open-catalog experiments (capped).
+    const catalogItems = inventory.catalogItems;
+    if (catalogItems !== undefined && catalogItems !== null) {
+        for (let i = 0; i < catalogItems.length; i++) {
+            if (!pushItem(catalogItems[i])) {
+                return result;
+            }
         }
     }
 
