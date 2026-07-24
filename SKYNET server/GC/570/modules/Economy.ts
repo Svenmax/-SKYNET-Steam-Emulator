@@ -305,9 +305,15 @@ function grantPurchaseItems(ctx: RawMessageContext, defIndexes: any): any {
 
     const inventory = ctx.services.items.getInventory();
     for (let i = 0; i < defIndexes.length; i++) {
-        const defIndex = defIndexes[i];
-        let catalogItem = ctx.services.items.getCatalogItem(defIndex);
-        if (catalogItem === null) {
+        // TypeSharp: keep defIndex/catalogItem as any. Union DotaCatalogItem|null
+        // cannot be reassigned an object literal, and array element types widen to number?.
+        const defIndex: any = defIndexes[i];
+        if (defIndex === null || defIndex === undefined || defIndex === 0) {
+            continue;
+        }
+
+        let catalogItem: any = ctx.services.items.getCatalogItem(defIndex);
+        if (catalogItem === null || catalogItem === undefined) {
             // Store purchase may request a def that is not in the imported
             // catalog snapshot. Still emit a synthetic CSOEconItem so the
             // client backpack path can observe the grant (gbe does the same).
@@ -319,7 +325,8 @@ function grantPurchaseItems(ctx: RawMessageContext, defIndexes: any): any {
             };
         }
 
-        const itemId = buildDotaItemInstanceId(inventory.steamId, catalogItem.defIndex);
+        const resolvedDef: any = catalogItem.defIndex;
+        const itemId = buildDotaItemInstanceId(inventory.steamId, resolvedDef);
         itemIds.push(itemId);
 
         // Notify the client econ SO cache that this item exists/updated.
@@ -332,7 +339,7 @@ function grantPurchaseItems(ctx: RawMessageContext, defIndexes: any): any {
                 buildEconItem(
                     inventory,
                     catalogItem,
-                    equipmentForDefIndex(inventory, catalogItem.defIndex)
+                    equipmentForDefIndex(inventory, resolvedDef)
                 )
             ),
             version: inventory.version,
