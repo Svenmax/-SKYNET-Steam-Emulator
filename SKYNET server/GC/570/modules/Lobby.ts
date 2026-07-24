@@ -248,7 +248,7 @@ export function registerLobby(): Lobby {
     return lobby;
 }
 
-export function emitCurrentLobby<TRequest, TResponse>(ctx: HandlerContext<TRequest, TResponse>): void {
+export function emitCurrentLobby(ctx: GcContextBase): void {
     const lobby = currentLobby(ctx.steamId);
     if (lobby !== null) {
         subscribeToLobby(ctx, ctx.steamId, lobby);
@@ -344,6 +344,7 @@ export class Lobby {
         const lobbyId = ctx.request.lobbyId ?? 0n;
         const passKey = ctx.request.passKey ?? "";
         // TypeSharp does not narrow null across else-if chains; use any + early returns.
+        // Upstream join path uses subscribeToLobbyObjectOnly + broadcast to others.
         const lobby: any = store.lobbies.get(lobbyId);
         if (lobby === null || lobby === undefined) {
             ctx.reply({ result: JOIN_INVALID_LOBBY });
@@ -1489,6 +1490,8 @@ function updateServerInfo(lobby: any, ctx: RawMessageContext, request: CMsgGameS
 
 function buildConnectString(services: DotaLobbyService, lobby: any): string {
     const fallback = lobby.serverPrivateIp === "" ? "127.0.0.1" : lobby.serverPrivateIp;
+    // The advertised endpoint is resolved by the server runtime from the central
+    // Server:AdvertisedIp setting; the GC only passes the game-reported values.
     const ips = services.resolveGameServerConnectIps(lobby.serverPublicIp, lobby.serverPrivateIp, fallback).split(" ");
     const endpoints: string[] = [];
     for (let i = 0; i < ips.length; i++) {
@@ -1867,12 +1870,10 @@ function broadcastLobby(ctx: GcContextBase, lobby: any, exceptSteamId: bigint, i
 
 function subscribeToLobby(ctx: GcContextBase, steamId: bigint, lobby: any): void {
     sendTo(ctx, steamId, Msg.SOCacheSubscribed, buildLobbySoCacheSubscribed(ctx, lobby));
-    sendTo(ctx, steamId, Msg.SOSingleObject, buildLobbySingleObject(ctx, lobby));
 }
 
 function subscribeToLobbyObjectOnly(ctx: GcContextBase, steamId: bigint, lobby: any): void {
     sendTo(ctx, steamId, Msg.SOCacheSubscribed, buildLobbyObjectOnlySubscribed(ctx, lobby));
-    sendTo(ctx, steamId, Msg.SOSingleObject, buildLobbySingleObject(ctx, lobby));
 }
 
 type LobbyOutboundMessage =
@@ -2094,7 +2095,7 @@ function buildInviteObject(invite: LobbyInviteState): any {
     };
 }
 
-function emitCurrentLobbyInvites<TRequest, TResponse>(ctx: HandlerContext<TRequest, TResponse>): void {
+function emitCurrentLobbyInvites(ctx: GcContextBase): void {
     store.invites.forEach((invite) => {
         if (invite.targetSteamId === ctx.steamId) {
             sendInvite(ctx, invite);

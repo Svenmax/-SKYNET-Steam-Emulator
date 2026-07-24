@@ -130,7 +130,7 @@ public sealed class ApiAdminOverview
 
 public sealed class ApiGameServerSettings
 {
-    public string AdvertisedGameServerIp { get; set; } = string.Empty;
+    public string AdvertisedServerIp { get; set; } = string.Empty;
     public bool DedicatedEnabled { get; set; } = true;
     public string DedicatedBindIp { get; set; } = "0.0.0.0";
     public int DedicatedPortStart { get; set; } = 27025;
@@ -198,6 +198,7 @@ public sealed class ApiEvent
     public uint AccountId { get; set; }
     public string PersonaName { get; set; } = string.Empty;
     public uint AppId { get; set; }
+    public string GameName { get; set; } = string.Empty;
     public ulong LobbyId { get; set; }
     public int PersonaState { get; set; }
     public int ChangeFlags { get; set; }
@@ -214,6 +215,8 @@ public sealed class ApiEvent
     public ulong? TargetJobId { get; set; }
     public bool Protobuf { get; set; }
     public int Channel { get; set; }
+    public string Transport { get; set; } = "legacy";
+    public int VirtualPort { get; set; }
     public ulong RemoteSteamId { get; set; }
     public int FriendRelationship { get; set; }
     public string RequestId { get; set; } = string.Empty;
@@ -226,10 +229,40 @@ public sealed class ApiLobbyQueryRequest
     public uint AppId { get; set; }
     public int Distance { get; set; }
     public int SlotsAvailable { get; set; }
+    public int ResultCount { get; set; }
     public string? KeyToMatch { get; set; }
     public int ValueToMatch { get; set; }
     public int ComparisonType { get; set; }
     public string? StringValueToMatch { get; set; }
+    public List<ApiLobbyNumericalFilter> NumericalFilters { get; set; } = new();
+    public List<ApiLobbyStringFilter> StringFilters { get; set; } = new();
+    public List<ApiLobbyNearValueFilter> NearValueFilters { get; set; } = new();
+}
+
+public sealed class ApiGameInfo
+{
+    public uint AppId { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+public sealed class ApiLobbyNumericalFilter
+{
+    public string? KeyToMatch { get; set; }
+    public int ValueToMatch { get; set; }
+    public int ComparisonType { get; set; }
+}
+
+public sealed class ApiLobbyStringFilter
+{
+    public string? KeyToMatch { get; set; }
+    public string? ValueToMatch { get; set; }
+    public int ComparisonType { get; set; }
+}
+
+public sealed class ApiLobbyNearValueFilter
+{
+    public string? KeyToMatch { get; set; }
+    public int ValueToBeCloseTo { get; set; }
 }
 
 public sealed class ApiCreateLobbyRequest
@@ -269,6 +302,17 @@ public sealed class ApiLobbyGameServerUpdateRequest
     public ulong SteamIdGameServer { get; set; }
     public uint IP { get; set; }
     public uint Port { get; set; }
+}
+
+public sealed class ApiLobbyInviteRequest
+{
+    public ulong InviteeSteamId { get; set; }
+}
+
+public sealed class ApiGameInviteRequest
+{
+    public ulong InviteeSteamId { get; set; }
+    public string ConnectString { get; set; } = string.Empty;
 }
 
 public sealed class ApiLobby
@@ -476,6 +520,8 @@ public sealed class ApiP2PPacketSend
     public string BufferBase64 { get; set; } = string.Empty;
     public int SendType { get; set; }
     public int Channel { get; set; }
+    public string Transport { get; set; } = "legacy";
+    public int VirtualPort { get; set; }
 }
 
 public sealed class ApiP2PPacketBatch

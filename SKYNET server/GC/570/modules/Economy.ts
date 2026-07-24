@@ -91,10 +91,20 @@ export class Economy {
         // updates even when the client aborts the txn next.
         const itemIds = grantPurchaseItems(ctx, defIndexes);
 
+        let defsLog = "";
+        for (let i = 0; i < defIndexes.length && i < 8; i++) {
+            if (i > 0) {
+                defsLog = defsLog + ",";
+            }
+            defsLog = defsLog + defIndexes[i];
+        }
+
         ctx.logger.info(
             "Economy: StorePurchaseInit lineItems=" +
                 defIndexes.length +
-                " txnId=" +
+                " defs=[" +
+                defsLog +
+                "] txnId=" +
                 txnId +
                 " granted=" +
                 itemIds.length

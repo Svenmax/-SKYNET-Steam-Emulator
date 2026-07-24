@@ -104,6 +104,10 @@ namespace SKYNET.Managers
                     ApplyLobby(serverEvent, 0);
                     break;
 
+                case "lobby_member_updated":
+                    ApplyLobby(serverEvent, 0, serverEvent.SteamId);
+                    break;
+
                 case "lobby_joined":
                     ApplyLobby(serverEvent, (uint)EChatMemberStateChange.k_EChatMemberStateChangeEntered);
                     break;
@@ -119,6 +123,18 @@ namespace SKYNET.Managers
 
                 case "lobby_chat":
                     ApplyLobbyChat(serverEvent);
+                    break;
+
+                case "lobby_game_created":
+                    ApplyLobbyGameCreated(serverEvent);
+                    break;
+
+                case "lobby_invite":
+                    ApplyLobbyInvite(serverEvent);
+                    break;
+
+                case "game_invite":
+                    ApplyGameInvite(serverEvent);
                     break;
 
                 case "p2p_packet":
@@ -162,7 +178,7 @@ namespace SKYNET.Managers
             }
         }
 
-        private static void ApplyLobby(APIClient.ApiEvent serverEvent, uint memberStateChange)
+        private static void ApplyLobby(APIClient.ApiEvent serverEvent, uint memberStateChange, ulong dataSubjectSteamId = 0)
         {
             var lobby = serverEvent.Lobby == null ? null : APIClient.MapLobbyForEvents(serverEvent.Lobby);
             if (lobby == null)
@@ -185,13 +201,70 @@ namespace SKYNET.Managers
                 });
             }
 
-            // Lobby-level data change: Steam sets member == lobby.
+            // Lobby-level data changes use the lobby ID as the callback subject.
+            // Member data updates instead identify the affected member.
             CallbackManager.AddCallback(new LobbyDataUpdate_t
             {
                 m_bSuccess = true,
                 m_ulSteamIDLobby = lobby.SteamID,
-                m_ulSteamIDMember = lobby.SteamID
+                m_ulSteamIDMember = dataSubjectSteamId != 0 ? dataSubjectSteamId : lobby.SteamID
             });
+        }
+
+        private static void ApplyLobbyGameCreated(APIClient.ApiEvent serverEvent)
+        {
+            var lobby = serverEvent.Lobby == null ? null : APIClient.MapLobbyForEvents(serverEvent.Lobby);
+            if (lobby == null || !lobby.Gameserver.Filled)
+            {
+                return;
+            }
+
+            LobbyManager.UpsertLobby(lobby);
+            CallbackManager.AddCallback(new LobbyGameCreated_t
+            {
+                m_ulSteamIDLobby = lobby.SteamID,
+                m_ulSteamIDGameServer = lobby.Gameserver.SteamID,
+                m_unIP = lobby.Gameserver.IP,
+                m_usPort = (ushort)lobby.Gameserver.Port
+            });
+        }
+
+        private static void ApplyLobbyInvite(APIClient.ApiEvent serverEvent)
+        {
+            if (serverEvent.LobbyId == 0 || serverEvent.SteamId == 0)
+            {
+                return;
+            }
+
+            // The invite callback is delivered immediately. Joining is deferred
+            // until the player accepts in the Steam overlay, matching Steam's
+            // lobby flow rather than silently adding the player to the lobby.
+            CallbackManager.AddCallback(new LobbyInvite_t
+            {
+                SteamIDUser = serverEvent.SteamId,
+                SteamIDLobby = serverEvent.LobbyId,
+                GameID = ((ulong)serverEvent.AppId & 0xFFFFFFUL) |
+                         ((ulong)EGameIDType.k_EGameIDTypeGameApp << 24)
+            });
+            OverlayManager.ShowLobbyInvite(serverEvent.SteamId, serverEvent.LobbyId, serverEvent.PersonaName, serverEvent.GameName);
+        }
+
+        private static void ApplyGameInvite(APIClient.ApiEvent serverEvent)
+        {
+            if (serverEvent.SteamId == 0 || string.IsNullOrWhiteSpace(serverEvent.PayloadBase64))
+            {
+                return;
+            }
+
+            try
+            {
+                var connectString = Encoding.UTF8.GetString(Convert.FromBase64String(serverEvent.PayloadBase64));
+                OverlayManager.ShowGameInvite(serverEvent.SteamId, connectString, serverEvent.PersonaName, serverEvent.GameName);
+            }
+            catch (FormatException)
+            {
+                SteamEmulator.Write("EventPump", "Discarded game invite with invalid connect-string payload.");
+            }
         }
 
         private static void ApplyLobbyChat(APIClient.ApiEvent serverEvent)
@@ -237,7 +310,12 @@ namespace SKYNET.Managers
 
         private static void ApplyP2PPacket(APIClient.ApiEvent serverEvent)
         {
-            if (SteamEmulator.SteamNetworking == null || string.IsNullOrWhiteSpace(serverEvent.PayloadBase64))
+            var transport = string.IsNullOrWhiteSpace(serverEvent.Transport) ? "legacy" : serverEvent.Transport;
+            var socketControl = string.Equals(transport, "sockets_open", StringComparison.Ordinal) ||
+                                string.Equals(transport, "sockets_accept", StringComparison.Ordinal) ||
+                                string.Equals(transport, "sockets_reject", StringComparison.Ordinal) ||
+                                string.Equals(transport, "sockets_close", StringComparison.Ordinal);
+            if (string.IsNullOrWhiteSpace(serverEvent.PayloadBase64) && !socketControl)
             {
                 return;
             }
@@ -245,6 +323,26 @@ namespace SKYNET.Managers
             var remoteSteamId = serverEvent.RemoteSteamId != 0
                 ? serverEvent.RemoteSteamId
                 : serverEvent.SteamId;
+
+            if (string.Equals(transport, "messages", StringComparison.Ordinal))
+            {
+                SteamEmulator.SteamNetworkingMessages?.ProcessMessage(remoteSteamId, serverEvent.Channel, Convert.FromBase64String(serverEvent.PayloadBase64));
+                return;
+            }
+
+            if (transport.StartsWith("sockets_", StringComparison.Ordinal))
+            {
+                var payload = string.IsNullOrEmpty(serverEvent.PayloadBase64)
+                    ? Array.Empty<byte>()
+                    : Convert.FromBase64String(serverEvent.PayloadBase64);
+                SteamEmulator.SteamNetworkingSockets?.ProcessRelayPacket(transport, remoteSteamId, serverEvent.VirtualPort, payload);
+                return;
+            }
+
+            if (SteamEmulator.SteamNetworking == null)
+            {
+                return;
+            }
 
             SteamEmulator.SteamNetworking.ProcessP2PPacket(new NET_P2PPacket
             {
